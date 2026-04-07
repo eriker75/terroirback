@@ -11,9 +11,22 @@ import { CategoryModule } from './category/category.module';
 import { TagsModule } from './tags/tags.module';
 import { AddressModule } from './address/address.module';
 import { CouponsModule } from './coupons/coupons.module';
+import { BannersModule } from './banners/banners.module';
 
 @Module({
-  imports: [OrdersModule, ProductsModule, NotificationsModule, CartModule, WishlistModule, UsersModule, CategoryModule, TagsModule, AddressModule, CouponsModule],
+  imports: [
+    OrdersModule,
+    ProductsModule,
+    NotificationsModule,
+    CartModule,
+    WishlistModule,
+    UsersModule,
+    CategoryModule,
+    TagsModule,
+    AddressModule,
+    CouponsModule,
+    BannersModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
