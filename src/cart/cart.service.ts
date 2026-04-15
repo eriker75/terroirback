@@ -7,6 +7,7 @@ import { CouponApplicationMode } from '@prisma/client';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class CartService {
@@ -108,10 +109,16 @@ export class CartService {
     });
   }
 
-  findAll() {
-    return this.prisma.cart.findMany({
-      include: this.cartInclude,
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.cart.findMany({
+        include: this.cartInclude,
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.cart.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {

@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('categories')
 @Controller('categories')
@@ -27,8 +28,8 @@ export class CategoryController {
   @Get()
   @ApiOperation({ summary: 'Obtener todas las categorías' })
   @ApiResponse({ status: 200, description: 'Lista de categorías.' })
-  findAll() {
-    return this.categoryService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.categoryService.findAll(paginationDto);
   }
 
   // Público: ver categoría

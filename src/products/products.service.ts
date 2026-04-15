@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class ProductsService {
@@ -19,12 +20,13 @@ export class ProductsService {
   } satisfies Prisma.ProductInclude;
 
   create(createProductDto: CreateProductDto) {
-    const { tagIds, attributes, ...productData } = createProductDto;
+    const { tagIds, attributes, categoryId, ...productData } = createProductDto;
 
     return this.prisma.product.create({
       data: {
         ...productData,
         images: productData.images ?? [],
+        ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
         productTags: tagIds?.length
           ? {
               create: tagIds.map((tagId) => ({
@@ -42,11 +44,17 @@ export class ProductsService {
     });
   }
 
-  findAll() {
-    return this.prisma.product.findMany({
-      include: this.productInclude,
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        include: this.productInclude,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.product.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {
@@ -65,12 +73,15 @@ export class ProductsService {
   async update(id: string, updateProductDto: UpdateProductDto) {
     await this.findOne(id);
 
-    const { tagIds, attributes, ...productData } = updateProductDto;
+    const { tagIds, attributes, categoryId, ...productData } = updateProductDto;
 
     return this.prisma.product.update({
       where: { id },
       data: {
         ...productData,
+        ...(categoryId !== undefined
+          ? { category: { connect: { id: categoryId } } }
+          : {}),
         productTags: tagIds
           ? {
               deleteMany: {},

@@ -99,8 +99,8 @@ model Product {
   images        Json
   stock         Int              @default(0)
   
-  categoryId    String
-  category      Category         @relation("CategoryProducts", fields: [categoryId], references: [id])
+  categoryId    String?
+  category      Category?        @relation("CategoryProducts", fields: [categoryId], references: [id])
   
   variants      ProductVariant[]
   attributes    ProductAttribute[]

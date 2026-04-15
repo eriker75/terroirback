@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class CategoryService {
@@ -17,14 +18,17 @@ export class CategoryService {
     });
   }
 
-  findAll() {
-    return this.prisma.category.findMany({
-      include: {
-        parent: true,
-        children: true,
-      },
-      orderBy: { name: 'asc' },
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.category.findMany({
+        include: { parent: true, children: true },
+        orderBy: { name: 'asc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.category.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {

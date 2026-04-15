@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWishlistDto } from './dto/create-wishlist.dto';
 import { UpdateWishlistDto } from './dto/update-wishlist.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class WishlistService {
@@ -50,10 +51,16 @@ export class WishlistService {
     });
   }
 
-  findAll() {
-    return this.prisma.wishlist.findMany({
-      include: this.wishlistInclude,
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.wishlist.findMany({
+        include: this.wishlistInclude,
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.wishlist.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {

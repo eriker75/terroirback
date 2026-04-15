@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { User } from '../users/entities/user.entity';
@@ -23,6 +24,7 @@ import {
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('cart')
 @ApiBearerAuth()
@@ -53,8 +55,8 @@ export class CartController {
   @ApiOperation({ summary: '[Admin] Obtener todos los carritos' })
   @ApiResponse({ status: 200, description: 'Lista de carritos.' })
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll() {
-    return this.cartService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.cartService.findAll(paginationDto);
   }
 
   @Get(':id')

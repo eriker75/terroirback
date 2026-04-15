@@ -7,7 +7,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { User } from '../entities/user.entity';
 import { META_ROLES } from '../decorators/role-protected.decorator';
 
 @Injectable()
@@ -26,18 +25,22 @@ export class UserRoleGuard implements CanActivate {
     if (validRoles.length === 0) return true;
 
     const req = context.switchToHttp().getRequest();
-    const user = req.user as User;
+    // req.user es el POJO que devuelve Prisma, no una instancia de la clase User.
+    // El modelo tiene un campo singular `role: string`, así que lo normalizamos
+    // a un array para poder reutilizar la lógica de comparación.
+    const user = req.user as { role: string; firstName: string; lastName: string };
 
     if (!user) throw new BadRequestException('User not found');
 
-    for (const role of user.roles) {
-      if (validRoles.includes(role)) {
-        return true;
-      }
+    const userRoles: string[] = user.role ? [user.role] : [];
+    const fullName = `${user.firstName} ${user.lastName}`;
+
+    if (userRoles.some((role) => validRoles.includes(role))) {
+      return true;
     }
 
     throw new ForbiddenException(
-      `User ${user.fullName} need a valid role: [${validRoles}]`,
+      `User ${fullName} need a valid role: [${validRoles}]`,
     );
   }
 }

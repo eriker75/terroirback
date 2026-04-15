@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class CouponsService {
@@ -34,11 +35,17 @@ export class CouponsService {
     });
   }
 
-  findAll() {
-    return this.prisma.coupon.findMany({
-      include: this.couponInclude,
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.coupon.findMany({
+        include: this.couponInclude,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.coupon.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {

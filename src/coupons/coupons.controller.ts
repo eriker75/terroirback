@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { CouponsService } from './coupons.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('coupons')
 @Controller('coupons')
@@ -30,8 +31,8 @@ export class CouponsController {
   @ApiOperation({ summary: 'Obtener todos los cupones' })
   @ApiResponse({ status: 200, description: 'Lista de cupones.' })
   @ApiResponse({ status: 401, description: 'No autenticado.' })
-  findAll() {
-    return this.couponsService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.couponsService.findAll(paginationDto);
   }
 
   // Autenticado: ver un cupón específico

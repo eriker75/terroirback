@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { TagsService } from './tags.service';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('tags')
 @Controller('tags')
@@ -27,8 +28,8 @@ export class TagsController {
   @Get()
   @ApiOperation({ summary: 'Obtener todas las etiquetas' })
   @ApiResponse({ status: 200, description: 'Lista de etiquetas.' })
-  findAll() {
-    return this.tagsService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.tagsService.findAll(paginationDto);
   }
 
   // Público: ver etiqueta

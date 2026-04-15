@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { BannersService } from './banners.service';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('banners')
 @Controller('banners')
@@ -27,8 +28,8 @@ export class BannersController {
   @Get()
   @ApiOperation({ summary: 'Obtener todos los banners' })
   @ApiResponse({ status: 200, description: 'Lista de banners.' })
-  findAll() {
-    return this.bannersService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.bannersService.findAll(paginationDto);
   }
 
   // Público: ver banner

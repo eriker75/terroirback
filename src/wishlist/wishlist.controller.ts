@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { User } from '../users/entities/user.entity';
@@ -20,6 +21,7 @@ import {
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('wishlist')
 @ApiBearerAuth()
@@ -50,8 +52,8 @@ export class WishlistController {
   @ApiOperation({ summary: '[Admin] Obtener todas las wishlists' })
   @ApiResponse({ status: 200, description: 'Lista de wishlists.' })
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll() {
-    return this.wishlistService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.wishlistService.findAll(paginationDto);
   }
 
   @Get(':id')

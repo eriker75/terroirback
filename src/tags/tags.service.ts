@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class TagsService {
@@ -20,17 +21,17 @@ export class TagsService {
     });
   }
 
-  findAll() {
-    return this.prisma.tag.findMany({
-      include: {
-        productTags: {
-          include: {
-            product: true,
-          },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.tag.findMany({
+        include: { productTags: { include: { product: true } } },
+        orderBy: { name: 'asc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.tag.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {

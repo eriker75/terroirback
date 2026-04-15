@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { User } from '../users/entities/user.entity';
@@ -16,6 +17,7 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -61,8 +63,8 @@ export class OrdersController {
   @ApiOperation({ summary: '[Admin] Obtener todos los pedidos' })
   @ApiResponse({ status: 200, description: 'Lista de pedidos.' })
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll() {
-    return this.ordersService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.ordersService.findAll(paginationDto);
   }
 
   @Patch(':id')

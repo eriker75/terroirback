@@ -56,9 +56,10 @@ export class CreateProductDto {
   @Min(0)
   stock?: number;
 
-  @ApiProperty({ example: 'cldxxxxxxxxxxxxx' })
+  @ApiPropertyOptional({ example: 'cldxxxxxxxxxxxxx' })
+  @IsOptional()
   @IsString()
-  categoryId: string;
+  categoryId?: string;
 
   @ApiPropertyOptional({ example: ['cldtag1', 'cldtag2'] })
   @IsOptional()

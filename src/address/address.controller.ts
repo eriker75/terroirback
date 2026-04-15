@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { User } from '../users/entities/user.entity';
@@ -16,6 +17,7 @@ import { UpdateAddressDto } from './dto/update-address.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('addresses')
 @ApiBearerAuth()
@@ -93,7 +95,7 @@ export class AddressController {
   @ApiOperation({ summary: '[Admin] Obtener todas las direcciones' })
   @ApiResponse({ status: 200, description: 'Lista de direcciones.' })
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll() {
-    return this.addressService.findAll();
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.addressService.findAll(paginationDto);
   }
 }

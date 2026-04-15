@@ -1,11 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   private readonly userInclude = {
     addresses: true,
@@ -20,18 +30,39 @@ export class UsersService {
     },
   } as const;
 
-  create(createUserDto: CreateUserDto) {
-    return this.prisma.user.create({
-      data: createUserDto,
-      include: this.userInclude,
-    });
+  async create(createUserDto: CreateUserDto) {
+    try {
+      const user = await this.prisma.user.create({
+        data: createUserDto,
+        include: this.userInclude,
+      });
+
+      const payload: JwtPayload = { id: user.id };
+      const accessToken = this.jwtService.sign(payload);
+
+      return { ...user, accessToken };
+    } catch (error) {
+      // Prisma unique constraint violation
+      if (error?.code === 'P2002') {
+        throw new ConflictException(
+          `Ya existe un usuario registrado con ese correo electrónico`,
+        );
+      }
+      throw error;
+    }
   }
 
-  findAll() {
-    return this.prisma.user.findMany({
-      include: this.userInclude,
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        include: this.userInclude,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.user.count(),
+    ]);
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {
