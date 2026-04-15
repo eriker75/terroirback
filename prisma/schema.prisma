@@ -2,13 +2,11 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js" 
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
 }
 
 // -----------------------------------------------------------------------------
@@ -24,6 +22,12 @@ enum OrderStatus {
 enum DiscountType {
   PERCENTAGE
   FIXED_AMOUNT
+}
+
+enum CouponApplicationMode {
+  CART
+  GROUP
+  ITEM
 }
 
 // -----------------------------------------------------------------------------
@@ -49,9 +53,28 @@ model User {
   orders           Order[]
   wishlist         Wishlist?
   cart             Cart?
+  addresses        Address[]
 
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+}
+
+model Address {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label         String?
+  recipientName String
+  phone         String
+  line1         String
+  line2         String?
+  city          String
+  state         String
+  zip           String
+  country       String   @default("Venezuela")
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 // -----------------------------------------------------------------------------
@@ -71,14 +94,19 @@ model Product {
   id            String           @id @default(cuid())
   name          String
   description   String
-  price         Decimal          @db.Decimal(10, 2)
-  images        String[]         
+  price         Decimal
+  mainImage     String?
+  images        Json
   stock         Int              @default(0)
   
   categoryId    String
   category      Category         @relation("CategoryProducts", fields: [categoryId], references: [id])
   
   variants      ProductVariant[]
+  attributes    ProductAttribute[]
+  productTags   ProductTag[]
+  couponProducts CouponProduct[]
+  couponAppliedItems CartCouponAppliedItem[]
   
   upsells       Product[]        @relation("ProductUpsells")
   upsellOf      Product[]        @relation("ProductUpsells")
@@ -90,6 +118,7 @@ model Product {
   wishlistItems WishlistItem[]
   
   createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 }
 
 model ProductVariant {
@@ -100,6 +129,36 @@ model ProductVariant {
   value     String  
 }
 
+model ProductAttribute {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  value     String
+
+  @@index([productId])
+  @@unique([productId, name])
+}
+
+model Tag {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  slug        String      @unique
+  productTags ProductTag[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model ProductTag {
+  productId String
+  tagId     String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+  @@index([tagId])
+}
+
 // -----------------------------------------------------------------------------
 // CUPONES Y DESCUENTOS
 // -----------------------------------------------------------------------------
@@ -107,7 +166,7 @@ model Coupon {
   id           String       @id @default(cuid())
   code         String       @unique
   discountType DiscountType
-  amount       Decimal      @db.Decimal(10, 2)
+  amount       Decimal
   isActive     Boolean      @default(true)
   expiryDate   DateTime?
   usageLimit   Int?         // Límite total de veces que puede usarse
@@ -115,9 +174,21 @@ model Coupon {
 
   carts        Cart[]
   orders       Order[]
+  couponProducts     CouponProduct[]
+  cartApplications   CartCouponApplication[]
 
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+}
+
+model CouponProduct {
+  couponId  String
+  productId String
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, productId])
+  @@index([productId])
 }
 
 // -----------------------------------------------------------------------------
@@ -131,7 +202,8 @@ model Cart {
   couponId String?
   coupon   Coupon?    @relation(fields: [couponId], references: [id])
   
-  items    CartItem[]
+  items               CartItem[]
+  couponApplications  CartCouponApplication[]
 }
 
 model CartItem {
@@ -141,6 +213,33 @@ model CartItem {
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   quantity  Int     @default(1)
+
+  @@unique([cartId, productId])
+}
+
+model CartCouponApplication {
+  id        String                @id @default(cuid())
+  cartId    String
+  cart      Cart                  @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  couponId  String
+  coupon    Coupon                @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  mode      CouponApplicationMode
+  items     CartCouponAppliedItem[]
+  createdAt DateTime              @default(now())
+
+  @@index([cartId])
+  @@index([couponId])
+}
+
+model CartCouponAppliedItem {
+  id            String                @id @default(cuid())
+  applicationId String
+  application   CartCouponApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, productId])
+  @@index([productId])
 }
 
 // -----------------------------------------------------------------------------
@@ -159,6 +258,9 @@ model WishlistItem {
   wishlist   Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
   productId  String
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([wishlistId, productId])
+  @@index([productId])
 }
 
 // -----------------------------------------------------------------------------
@@ -174,8 +276,8 @@ model Order {
   couponId        String?
   coupon          Coupon?     @relation(fields: [couponId], references: [id])
   
-  discount        Decimal     @db.Decimal(10, 2) @default(0) // Monto exacto descontado
-  total           Decimal     @db.Decimal(10, 2)
+  discount        Decimal     @default(0) // Monto exacto descontado
+  total           Decimal
   status          OrderStatus @default(PENDING)
   
   items           OrderItem[]
@@ -189,7 +291,7 @@ model OrderItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
-  price     Decimal @db.Decimal(10, 2) 
+  price     Decimal
 }
 
 // -----------------------------------------------------------------------------

@@ -1,26 +1,62 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AddressService {
+  constructor(private readonly prisma: PrismaService) {}
+
   create(createAddressDto: CreateAddressDto) {
-    return 'This action adds a new address';
+    return this.prisma.address.create({
+      data: createAddressDto,
+      include: {
+        user: true,
+      },
+    });
   }
 
   findAll() {
-    return `This action returns all address`;
+    return this.prisma.address.findMany({
+      include: {
+        user: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} address`;
+  async findOne(id: string) {
+    const address = await this.prisma.address.findUnique({
+      where: { id },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!address) {
+      throw new NotFoundException(`Address with id ${id} not found`);
+    }
+
+    return address;
   }
 
-  update(id: number, updateAddressDto: UpdateAddressDto) {
-    return `This action updates a #${id} address`;
+  async update(id: string, updateAddressDto: UpdateAddressDto) {
+    await this.findOne(id);
+
+    return this.prisma.address.update({
+      where: { id },
+      data: updateAddressDto,
+      include: {
+        user: true,
+      },
+    });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} address`;
+  async remove(id: string) {
+    await this.findOne(id);
+
+    return this.prisma.address.delete({
+      where: { id },
+    });
   }
 }

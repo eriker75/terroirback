@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { OrdersModule } from './orders/orders.module';
@@ -12,9 +13,13 @@ import { TagsModule } from './tags/tags.module';
 import { AddressModule } from './address/address.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { BannersModule } from './banners/banners.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
     OrdersModule,
     ProductsModule,
     NotificationsModule,
@@ -26,6 +31,7 @@ import { BannersModule } from './banners/banners.module';
     AddressModule,
     CouponsModule,
     BannersModule,
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

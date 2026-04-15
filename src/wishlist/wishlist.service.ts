@@ -1,26 +1,145 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWishlistDto } from './dto/create-wishlist.dto';
 import { UpdateWishlistDto } from './dto/update-wishlist.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class WishlistService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private readonly wishlistInclude = {
+    user: true,
+    items: {
+      include: {
+        product: true,
+      },
+    },
+  } as const;
+
+  private async findOrCreateByUserId(userId: string) {
+    const existing = await this.prisma.wishlist.findUnique({
+      where: { userId },
+      include: this.wishlistInclude,
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.wishlist.create({
+      data: { userId },
+      include: this.wishlistInclude,
+    });
+  }
+
   create(createWishlistDto: CreateWishlistDto) {
-    return 'This action adds a new wishlist';
+    const { userId, productId } = createWishlistDto;
+
+    return this.prisma.wishlist.create({
+      data: {
+        userId,
+        items: productId
+          ? {
+              create: {
+                productId,
+              },
+            }
+          : undefined,
+      },
+      include: this.wishlistInclude,
+    });
   }
 
   findAll() {
-    return `This action returns all wishlist`;
+    return this.prisma.wishlist.findMany({
+      include: this.wishlistInclude,
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} wishlist`;
+  async findOne(id: string) {
+    const wishlist = await this.prisma.wishlist.findUnique({
+      where: { id },
+      include: this.wishlistInclude,
+    });
+
+    if (!wishlist) {
+      throw new NotFoundException(`Wishlist with id ${id} not found`);
+    }
+
+    return wishlist;
   }
 
-  update(id: number, updateWishlistDto: UpdateWishlistDto) {
-    return `This action updates a #${id} wishlist`;
+  async update(id: string, updateWishlistDto: UpdateWishlistDto) {
+    await this.findOne(id);
+
+    const { userId } = updateWishlistDto;
+    return this.prisma.wishlist.update({
+      where: { id },
+      data: {
+        userId,
+      },
+      include: this.wishlistInclude,
+    });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} wishlist`;
+  async findByUserId(userId: string) {
+    return this.findOrCreateByUserId(userId);
+  }
+
+  async addProduct(userId: string, productId: string) {
+    const wishlist = await this.findOrCreateByUserId(userId);
+
+    await this.prisma.wishlistItem.upsert({
+      where: {
+        wishlistId_productId: {
+          wishlistId: wishlist.id,
+          productId,
+        },
+      },
+      update: {},
+      create: {
+        wishlistId: wishlist.id,
+        productId,
+      },
+    });
+
+    return this.findOne(wishlist.id);
+  }
+
+  async removeProduct(userId: string, productId: string) {
+    const wishlist = await this.findOrCreateByUserId(userId);
+
+    await this.prisma.wishlistItem.deleteMany({
+      where: {
+        wishlistId: wishlist.id,
+        productId,
+      },
+    });
+
+    return this.findOne(wishlist.id);
+  }
+
+  async replaceItems(userId: string, productIds: string[]) {
+    const wishlist = await this.findOrCreateByUserId(userId);
+
+    await this.prisma.wishlist.update({
+      where: { id: wishlist.id },
+      data: {
+        items: {
+          deleteMany: {},
+          create: productIds.map((productId) => ({ productId })),
+        },
+      },
+    });
+
+    return this.findOne(wishlist.id);
+  }
+
+  async remove(id: string) {
+    await this.findOne(id);
+
+    return this.prisma.wishlist.delete({
+      where: { id },
+    });
   }
 }

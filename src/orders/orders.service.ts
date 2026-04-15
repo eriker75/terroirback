@@ -1,26 +1,89 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class OrdersService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private readonly orderInclude = {
+    user: true,
+    coupon: true,
+    items: {
+      include: {
+        product: true,
+      },
+    },
+  } as const;
+
   create(createOrderDto: CreateOrderDto) {
-    return 'This action adds a new order';
+    const { items, ...orderData } = createOrderDto;
+
+    return this.prisma.order.create({
+      data: {
+        ...orderData,
+        items: {
+          create: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        },
+      },
+      include: this.orderInclude,
+    });
   }
 
   findAll() {
-    return `This action returns all orders`;
+    return this.prisma.order.findMany({
+      include: this.orderInclude,
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} order`;
+  async findOne(id: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: this.orderInclude,
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id ${id} not found`);
+    }
+
+    return order;
   }
 
-  update(id: number, updateOrderDto: UpdateOrderDto) {
-    return `This action updates a #${id} order`;
+  async update(id: string, updateOrderDto: UpdateOrderDto) {
+    await this.findOne(id);
+
+    const { items, ...orderData } = updateOrderDto;
+
+    return this.prisma.order.update({
+      where: { id },
+      data: {
+        ...orderData,
+        items: items
+          ? {
+              deleteMany: {},
+              create: items.map((item) => ({
+                productId: item.productId,
+                quantity: item.quantity,
+                price: item.price,
+              })),
+            }
+          : undefined,
+      },
+      include: this.orderInclude,
+    });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} order`;
+  async remove(id: string) {
+    await this.findOne(id);
+
+    return this.prisma.order.delete({
+      where: { id },
+    });
   }
 }
