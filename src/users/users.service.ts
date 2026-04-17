@@ -2,9 +2,12 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
+import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
@@ -30,19 +33,24 @@ export class UsersService {
     },
   } as const;
 
+  private signToken(userId: string): string {
+    const payload: JwtPayload = { id: userId };
+    return this.jwtService.sign(payload);
+  }
+
   async create(createUserDto: CreateUserDto) {
+    const { password, ...rest } = createUserDto;
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     try {
       const user = await this.prisma.user.create({
-        data: createUserDto,
+        data: { ...rest, password: hashedPassword },
         include: this.userInclude,
       });
 
-      const payload: JwtPayload = { id: user.id };
-      const accessToken = this.jwtService.sign(payload);
-
+      const accessToken = this.signToken(user.id);
       return { ...user, accessToken };
-    } catch (error) {
-      // Prisma unique constraint violation
+    } catch (error: any) {
       if (error?.code === 'P2002') {
         throw new ConflictException(
           `Ya existe un usuario registrado con ese correo electrónico`,
@@ -50,6 +58,40 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  async login(loginUserDto: LoginUserDto) {
+    const { email, password } = loginUserDto;
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        password: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Credenciales incorrectas');
+    }
+
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Credenciales incorrectas');
+    }
+
+    const { password: _, ...userWithoutPassword } = user;
+    const accessToken = this.signToken(user.id);
+    return { ...userWithoutPassword, accessToken };
   }
 
   async findAll({ limit, offset }: PaginationDto) {
@@ -81,9 +123,14 @@ export class UsersService {
   async update(id: string, updateUserDto: UpdateUserDto) {
     await this.findOne(id);
 
+    const { password, ...rest } = updateUserDto;
+    const data = password
+      ? { ...rest, password: await bcrypt.hash(password, 10) }
+      : rest;
+
     return this.prisma.user.update({
       where: { id },
-      data: updateUserDto,
+      data,
       include: this.userInclude,
     });
   }

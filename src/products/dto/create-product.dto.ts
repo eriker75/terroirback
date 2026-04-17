@@ -6,7 +6,6 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUrl,
   MaxLength,
   Min,
   ValidateNested,
@@ -30,7 +29,9 @@ export class CreateProductDto {
   @MaxLength(255)
   name: string;
 
-  @ApiProperty({ example: 'Vino tinto de uva Malbec con crianza de 12 meses en barrica.' })
+  @ApiProperty({
+    example: 'Vino tinto de uva Malbec con crianza de 12 meses en barrica.',
+  })
   @IsString()
   description: string;
 

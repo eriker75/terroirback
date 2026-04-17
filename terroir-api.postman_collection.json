@@ -40,6 +40,18 @@
       "name": "Users",
       "item": [
         {
+          "name": "POST /users/login — Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/users/login", "host": ["{{baseUrl}}"], "path": ["users", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"usuario@ejemplo.com\",\n  \"password\": \"contraseña123\"\n}"
+            }
+          }
+        },
+        {
           "name": "POST /users — Registrar usuario",
           "request": {
             "method": "POST",

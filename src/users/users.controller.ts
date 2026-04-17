@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestj
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Auth } from './decorators/auth.decorators';
 import { ValidRoles } from './interfaces';
@@ -15,11 +16,20 @@ export class UsersController {
   // Público: registro de nuevos usuarios
   @Post()
   @ApiOperation({ summary: 'Registrar un nuevo usuario' })
-  @ApiResponse({ status: 201, description: 'Usuario creado correctamente. Incluye accessToken para login inmediato.' })
+  @ApiResponse({ status: 201, description: 'Usuario creado correctamente. Incluye accessToken.' })
   @ApiResponse({ status: 400, description: 'Datos inválidos.' })
   @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
+  }
+
+  // Público: login
+  @Post('login')
+  @ApiOperation({ summary: 'Iniciar sesión y obtener token JWT' })
+  @ApiResponse({ status: 200, description: 'Login exitoso. Devuelve usuario + accessToken.' })
+  @ApiResponse({ status: 401, description: 'Credenciales incorrectas o usuario inactivo.' })
+  login(@Body() loginUserDto: LoginUserDto) {
+    return this.usersService.login(loginUserDto);
   }
 
   // Admin: ver todos los usuarios
