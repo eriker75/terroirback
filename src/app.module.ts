@@ -15,6 +15,7 @@ import { CouponsModule } from './coupons/coupons.module';
 import { BannersModule } from './banners/banners.module';
 import { DatabaseModule } from './database/database.module';
 import { FilesModule } from './files/files.module';
+import { MailerModule } from './mailer/mailer.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { FilesModule } from './files/files.module';
     CouponsModule,
     BannersModule,
     FilesModule,
+    MailerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

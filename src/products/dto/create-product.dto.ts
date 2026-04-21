@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ProductRelationType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -21,6 +23,16 @@ export class CreateProductAttributeDto {
   @IsString()
   @MaxLength(255)
   value: string;
+}
+
+export class ProductRelationDto {
+  @ApiProperty({ example: 'uuid-del-producto-relacionado' })
+  @IsString()
+  relatedId: string;
+
+  @ApiProperty({ enum: ProductRelationType, example: ProductRelationType.UPSELL })
+  @IsEnum(ProductRelationType)
+  relationType: ProductRelationType;
 }
 
 export class CreateProductDto {
@@ -74,4 +86,11 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductAttributeDto)
   attributes?: CreateProductAttributeDto[];
+
+  @ApiPropertyOptional({ type: [ProductRelationDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductRelationDto)
+  relatedProducts?: ProductRelationDto[];
 }

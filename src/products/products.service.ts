@@ -13,14 +13,25 @@ export class ProductsService {
     category: true,
     attributes: true,
     productTags: {
+      include: { tag: true },
+    },
+    relatedProducts: {
       include: {
-        tag: true,
+        related: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            mainImage: true,
+          },
+        },
       },
     },
   } satisfies Prisma.ProductInclude;
 
   create(createProductDto: CreateProductDto) {
-    const { tagIds, attributes, categoryId, ...productData } = createProductDto;
+    const { tagIds, attributes, categoryId, relatedProducts, ...productData } =
+      createProductDto;
 
     return this.prisma.product.create({
       data: {
@@ -28,16 +39,13 @@ export class ProductsService {
         images: productData.images ?? [],
         ...(categoryId ? { category: { connect: { id: categoryId } } } : {}),
         productTags: tagIds?.length
-          ? {
-              create: tagIds.map((tagId) => ({
-                tag: { connect: { id: tagId } },
-              })),
-            }
+          ? { create: tagIds.map((tagId) => ({ tag: { connect: { id: tagId } } })) }
           : undefined,
         attributes: attributes?.length
-          ? {
-              create: attributes,
-            }
+          ? { create: attributes }
+          : undefined,
+        relatedProducts: relatedProducts?.length
+          ? { create: relatedProducts.map(({ relatedId, relationType }) => ({ relatedId, relationType })) }
           : undefined,
       },
       include: this.productInclude,
@@ -73,7 +81,8 @@ export class ProductsService {
   async update(id: string, updateProductDto: UpdateProductDto) {
     await this.findOne(id);
 
-    const { tagIds, attributes, categoryId, ...productData } = updateProductDto;
+    const { tagIds, attributes, categoryId, relatedProducts, ...productData } =
+      updateProductDto;
 
     return this.prisma.product.update({
       where: { id },
@@ -85,15 +94,19 @@ export class ProductsService {
         productTags: tagIds
           ? {
               deleteMany: {},
-              create: tagIds.map((tagId) => ({
-                tag: { connect: { id: tagId } },
-              })),
+              create: tagIds.map((tagId) => ({ tag: { connect: { id: tagId } } })),
             }
           : undefined,
         attributes: attributes
+          ? { deleteMany: {}, create: attributes }
+          : undefined,
+        relatedProducts: relatedProducts
           ? {
               deleteMany: {},
-              create: attributes,
+              create: relatedProducts.map(({ relatedId, relationType }) => ({
+                relatedId,
+                relationType,
+              })),
             }
           : undefined,
       },
@@ -103,9 +116,6 @@ export class ProductsService {
 
   async remove(id: string) {
     await this.findOne(id);
-
-    return this.prisma.product.delete({
-      where: { id },
-    });
+    return this.prisma.product.delete({ where: { id } });
   }
 }

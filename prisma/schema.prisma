@@ -24,10 +24,9 @@ enum DiscountType {
   FIXED_AMOUNT
 }
 
-enum CouponApplicationMode {
-  CART
-  GROUP
-  ITEM
+enum ProductRelationType {
+  UPSELL
+  CROSS_SELL
 }
 
 // -----------------------------------------------------------------------------
@@ -114,12 +113,9 @@ model Product {
   attributes         ProductAttribute[]
   productTags        ProductTag[]
   couponProducts     CouponProduct[]
-  couponAppliedItems CartCouponAppliedItem[]
 
-  upsells     Product[] @relation("ProductUpsells")
-  upsellOf    Product[] @relation("ProductUpsells")
-  crossSells  Product[] @relation("ProductCrossSells")
-  crossSellOf Product[] @relation("ProductCrossSells")
+  relatedProducts ProductRelated[] @relation("relatedProducts")
+  relatedTo       ProductRelated[] @relation("relatedTo")
 
   cartItems     CartItem[]
   orderItems    OrderItem[]
@@ -168,6 +164,21 @@ model ProductTag {
   @@index([tagId])
 }
 
+model ProductRelated {
+  id           String              @id @default(uuid())
+  productId    String
+  product      Product             @relation("relatedProducts", fields: [productId], references: [id], onDelete: Cascade)
+  relatedId    String
+  related      Product             @relation("relatedTo", fields: [relatedId], references: [id], onDelete: Cascade)
+  relationType ProductRelationType
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([productId, relatedId, relationType])
+  @@index([productId])
+  @@index([relatedId])
+}
+
 // -----------------------------------------------------------------------------
 // CUPONES Y DESCUENTOS
 // -----------------------------------------------------------------------------
@@ -185,7 +196,7 @@ model Coupon {
   carts            Cart[]
   orders           Order[]
   couponProducts   CouponProduct[]
-  cartApplications CartCouponApplication[]
+
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -213,8 +224,7 @@ model Cart {
   couponId String?
   coupon   Coupon? @relation(fields: [couponId], references: [id])
 
-  items              CartItem[]
-  couponApplications CartCouponApplication[]
+  items CartItem[]
 }
 
 model CartItem {
@@ -228,30 +238,6 @@ model CartItem {
   @@unique([cartId, productId])
 }
 
-model CartCouponApplication {
-  id        String                 @id @default(uuid())
-  cartId    String
-  cart      Cart                   @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  couponId  String
-  coupon    Coupon                 @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  mode      CouponApplicationMode
-  items     CartCouponAppliedItem[]
-  createdAt DateTime               @default(now())
-
-  @@index([cartId])
-  @@index([couponId])
-}
-
-model CartCouponAppliedItem {
-  id            String                @id @default(uuid())
-  applicationId String
-  application   CartCouponApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  productId     String
-  product       Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([applicationId, productId])
-  @@index([productId])
-}
 
 // -----------------------------------------------------------------------------
 // WISHLIST

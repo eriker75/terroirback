@@ -9,6 +9,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
+
 import { CreateCartDto } from './create-cart.dto';
 
 export class UpdateCartDto extends PartialType(CreateCartDto) {}
@@ -60,13 +61,3 @@ export class ApplyCartCouponDto {
   couponCode: string;
 }
 
-export class ApplyGroupCouponDto {
-  @ApiProperty({ example: 'DESCUENTO10' })
-  @IsString()
-  couponCode: string;
-
-  @ApiProperty({ example: ['cldproduct123', 'cldproduct456'] })
-  @IsArray()
-  @IsString({ each: true })
-  productIds: string[];
-}
