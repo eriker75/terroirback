@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-echo "[terroir] Running Prisma migrations..."
-npx prisma migrate deploy
+echo "[terroir] Syncing database schema..."
+npx prisma db push --accept-data-loss
 
 echo "[terroir] Starting NestJS development server..."
 exec npm run start:dev

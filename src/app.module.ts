@@ -13,13 +13,13 @@ import { TagsModule } from './tags/tags.module';
 import { AddressModule } from './address/address.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { BannersModule } from './banners/banners.module';
-import { PrismaModule } from './prisma/prisma.module';
+import { DatabaseModule } from './database/database.module';
 import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    PrismaModule,
+    DatabaseModule,
     OrdersModule,
     ProductsModule,
     NotificationsModule,

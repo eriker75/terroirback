@@ -3,14 +3,14 @@ COMPOSE_DEV_FILE=docker-compose.dev.yml
 COMPOSE_PROD_FILE=docker-compose.prod.yml
 COMPOSE_SERVICES_FILE=docker-compose.services.yml
 # Project name for docker-compose
-PROJECT_NAME=onenglish
+PROJECT_NAME=terroir
 
-# AWS ECR Configuration
+# AWS ECR / GCR Configuration
 # Override these in .env.prod or pass as environment variables
-ECR_ACCOUNT_ID=630915201742
-ECR_REGION=us-east-2
-ECR_REPOSITORY=onenglish/nestjs_backend
-ECR_IMAGE_TAG=v5.0.0
+ECR_ACCOUNT_ID=
+ECR_REGION=us-east-1
+ECR_REPOSITORY=terroir/nestjs_backend
+ECR_IMAGE_TAG=latest
 ECR_REGISTRY=$(ECR_ACCOUNT_ID).dkr.ecr.$(ECR_REGION).amazonaws.com
 ECR_IMAGE=$(ECR_REGISTRY)/$(ECR_REPOSITORY):$(ECR_IMAGE_TAG)
 

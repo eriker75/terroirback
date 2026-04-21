@@ -23,11 +23,10 @@ services:
   pgadmin:
     container_name: terroir_pgadmin
     image: dpage/pgadmin4:9.10.0
-    restart: always
+    restart: on-failure
     environment:
       PGADMIN_DEFAULT_EMAIL: "${PGADMIN_DEFAULT_EMAIL}"
       PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_DEFAULT_PASSWORD}"
-      PGADMIN_CONFIG_SERVER_MODE: "False"
     volumes:
       - pgadmindata:/var/lib/pgadmin
     ports:
@@ -53,10 +52,12 @@ services:
     networks:
       - appnet
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8025 || exit 1"]
+      # mailpit es Alpine — usa wget en lugar de curl
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8025 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 5s
 
   backend:
     build:
@@ -76,8 +77,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # mailpit no bloquea el backend — si no hay SMTP el app arranca igual
       mailpit:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - .env
     environment:

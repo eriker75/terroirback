@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWishlistDto } from './dto/create-wishlist.dto';
 import { UpdateWishlistDto } from './dto/update-wishlist.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()

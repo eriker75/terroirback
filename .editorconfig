@@ -1,0 +1,36 @@
+# .editorconfig file for Next.js and NestJS projects
+
+# Top-most EditorConfig file
+root = true
+
+# Default settings for all files
+[*]
+indent_style = space
+indent_size = 2
+tab_width = 2
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# JavaScript and TypeScript files
+[*.{js,jsx,ts,tsx}]
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+# JSON files
+[*.json]
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false
+
+# Configuration files (like .babelrc, .eslintrc, etc.)
+[*.{json,babelrc,eslintrc}]
+indent_style = space
+indent_size = 2
+tab_width = 2

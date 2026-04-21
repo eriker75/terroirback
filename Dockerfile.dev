@@ -1,30 +1,28 @@
-FROM node:20
+FROM node:20-slim
 
 WORKDIR /usr/src/app
 
-# System deps: PostgreSQL client + Chromium for PDF generation
-RUN apt-get update && apt-get install -y \
+# Solo lo que realmente necesitamos: cliente pg + curl para healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
-    chromium \
     curl \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-# Install dependencies without triggering postinstall (schema not copied yet)
+# Instalar dependencias sin disparar postinstall (el schema no está copiado aún)
 COPY package*.json ./
 RUN npm install --ignore-scripts
 
-# Copy Prisma schema and config, then generate client
+# Copiar schema y config de Prisma, luego generar el cliente
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public"
 RUN npx prisma generate
 
-# Copy the rest of the source
+# Copiar el resto del código fuente
 COPY . .
 
-# Make scripts executable
+# Hacer ejecutables los scripts
 RUN chmod +x /usr/src/app/scripts/runner.sh \
              /usr/src/app/scripts/build-database-url.sh
 

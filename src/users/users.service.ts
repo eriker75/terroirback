@@ -9,7 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../database/database.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { PaginationDto } from '../common/dto/pagination.dto';
 

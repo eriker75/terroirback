@@ -6,7 +6,7 @@ import {
 import { CouponApplicationMode } from '@prisma/client';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Injectable()
