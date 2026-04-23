@@ -5,10 +5,9 @@ import {
   IsString,
   MinLength,
   MaxLength,
-  IsIn,
 } from 'class-validator';
 
-export class CreateUserDto {
+export class RegisterUserDto {
   @ApiProperty({ example: 'usuario@ejemplo.com' })
   @IsEmail()
   email: string;
@@ -63,17 +62,4 @@ export class CreateUserDto {
   @IsString()
   @MaxLength(100)
   country?: string;
-
-  @ApiPropertyOptional({ example: 'customer', enum: ['customer', 'admin'] })
-  @IsOptional()
-  @IsString()
-  @IsIn(['customer', 'admin'])
-  role?: string;
-
-  @ApiPropertyOptional({ example: 'active', enum: ['active', 'inactive'] })
-  @IsOptional()
-  @IsString()
-  @IsIn(['active', 'inactive'])
-  status?: string;
-
 }

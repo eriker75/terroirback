@@ -13,7 +13,6 @@ export class User {
   country: string;
   role: string;
   status: string;
-  stripeCustomerId?: string;
   createdAt: Date;
   updatedAt: Date;
 

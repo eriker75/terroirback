@@ -52,7 +52,6 @@ model User {
   country          String    @default("Venezuela")
   role             String    @default("customer")
   status           String    @default("active")
-  stripeCustomerId String?   @unique
 
   orders    Order[]
   wishlist  Wishlist?
@@ -267,9 +266,8 @@ model WishlistItem {
 model Order {
   orderId         Int         @id @default(autoincrement())
   id              String      @unique @default(uuid())
-  userId          String
-  user            User        @relation(fields: [userId], references: [id])
-  stripeSessionId String      @unique
+  userId   String
+  user     User        @relation(fields: [userId], references: [id])
 
   couponId String?
   coupon   Coupon? @relation(fields: [couponId], references: [id])

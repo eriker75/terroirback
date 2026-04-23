@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestj
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Auth } from './decorators/auth.decorators';
@@ -13,11 +14,39 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // Público: registro de nuevos usuarios
+  // Público: registro de nuevos clientes
+  @Post('register')
+  @ApiOperation({ summary: 'Registrar un nuevo cliente' })
+  @ApiResponse({ status: 201, description: 'Cliente registrado correctamente. Incluye accessToken.' })
+  @ApiResponse({ status: 400, description: 'Datos inválidos.' })
+  @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
+  register(@Body() registerUserDto: RegisterUserDto) {
+    return this.usersService.register(registerUserDto);
+  }
+
+  // Admin: registrar un nuevo administrador
+  @Post('register-admin')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Registrar un nuevo administrador' })
+  @ApiResponse({ status: 201, description: 'Administrador registrado correctamente.' })
+  @ApiResponse({ status: 400, description: 'Datos inválidos.' })
+  @ApiResponse({ status: 401, description: 'No autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
+  @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
+  registerAdmin(@Body() registerUserDto: RegisterUserDto) {
+    return this.usersService.registerAdmin(registerUserDto);
+  }
+
+  // Admin: crear usuario con control total (rol, estado, etc.)
   @Post()
-  @ApiOperation({ summary: 'Registrar un nuevo usuario' })
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Crear usuario con control total' })
   @ApiResponse({ status: 201, description: 'Usuario creado correctamente. Incluye accessToken.' })
   @ApiResponse({ status: 400, description: 'Datos inválidos.' })
+  @ApiResponse({ status: 401, description: 'No autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);

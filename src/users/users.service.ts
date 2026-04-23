@@ -7,8 +7,10 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { CreateUserDto } from './dto/create-user.dto';
+import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -22,15 +24,6 @@ export class UsersService {
 
   private readonly userInclude = {
     addresses: true,
-    orders: {
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
-    },
   } as const;
 
   private signToken(userId: string): string {
@@ -38,8 +31,8 @@ export class UsersService {
     return this.jwtService.sign(payload);
   }
 
-  async create(createUserDto: CreateUserDto) {
-    const { password, ...rest } = createUserDto;
+  private async createUser(data: Prisma.UserCreateInput) {
+    const { password, ...rest } = data;
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
@@ -58,6 +51,18 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  async register(registerUserDto: RegisterUserDto) {
+    return this.createUser({ ...registerUserDto, role: 'customer', status: 'active' });
+  }
+
+  async registerAdmin(registerUserDto: RegisterUserDto) {
+    return this.createUser({ ...registerUserDto, role: 'admin', status: 'active' });
+  }
+
+  async create(createUserDto: CreateUserDto) {
+    return this.createUser(createUserDto);
   }
 
   async login(loginUserDto: LoginUserDto) {

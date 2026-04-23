@@ -33,10 +33,6 @@ export class CreateOrderDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ example: 'cs_test_xxxxxxxxxxxxxxxx' })
-  @IsString()
-  stripeSessionId: string;
-
   @ApiPropertyOptional({ example: 'cldcoupon123' })
   @IsOptional()
   @IsString()

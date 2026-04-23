@@ -5,9 +5,6 @@ CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PAID', 'SHIPPED', 'CANCELLED');
 CREATE TYPE "DiscountType" AS ENUM ('PERCENTAGE', 'FIXED_AMOUNT');
 
 -- CreateEnum
-CREATE TYPE "CouponApplicationMode" AS ENUM ('CART', 'GROUP', 'ITEM');
-
--- CreateEnum
 CREATE TYPE "ProductRelationType" AS ENUM ('UPSELL', 'CROSS_SELL');
 
 -- CreateTable
@@ -27,7 +24,6 @@ CREATE TABLE "User" (
     "country" TEXT NOT NULL DEFAULT 'Venezuela',
     "role" TEXT NOT NULL DEFAULT 'customer',
     "status" TEXT NOT NULL DEFAULT 'active',
-    "stripeCustomerId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -181,26 +177,6 @@ CREATE TABLE "CartItem" (
 );
 
 -- CreateTable
-CREATE TABLE "CartCouponApplication" (
-    "id" TEXT NOT NULL,
-    "cartId" TEXT NOT NULL,
-    "couponId" TEXT NOT NULL,
-    "mode" "CouponApplicationMode" NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "CartCouponApplication_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "CartCouponAppliedItem" (
-    "id" TEXT NOT NULL,
-    "applicationId" TEXT NOT NULL,
-    "productId" TEXT NOT NULL,
-
-    CONSTRAINT "CartCouponAppliedItem_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Wishlist" (
     "wishlistId" SERIAL NOT NULL,
     "id" TEXT NOT NULL,
@@ -223,7 +199,6 @@ CREATE TABLE "Order" (
     "orderId" SERIAL NOT NULL,
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "stripeSessionId" TEXT NOT NULL,
     "couponId" TEXT,
     "discount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "total" DECIMAL(65,30) NOT NULL,
@@ -264,9 +239,6 @@ CREATE UNIQUE INDEX "User_id_key" ON "User"("id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
-
--- CreateIndex
-CREATE UNIQUE INDEX "User_stripeCustomerId_key" ON "User"("stripeCustomerId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Address_id_key" ON "Address"("id");
@@ -326,18 +298,6 @@ CREATE UNIQUE INDEX "Cart_userId_key" ON "Cart"("userId");
 CREATE UNIQUE INDEX "CartItem_cartId_productId_key" ON "CartItem"("cartId", "productId");
 
 -- CreateIndex
-CREATE INDEX "CartCouponApplication_cartId_idx" ON "CartCouponApplication"("cartId");
-
--- CreateIndex
-CREATE INDEX "CartCouponApplication_couponId_idx" ON "CartCouponApplication"("couponId");
-
--- CreateIndex
-CREATE INDEX "CartCouponAppliedItem_productId_idx" ON "CartCouponAppliedItem"("productId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "CartCouponAppliedItem_applicationId_productId_key" ON "CartCouponAppliedItem"("applicationId", "productId");
-
--- CreateIndex
 CREATE UNIQUE INDEX "Wishlist_id_key" ON "Wishlist"("id");
 
 -- CreateIndex
@@ -351,9 +311,6 @@ CREATE UNIQUE INDEX "WishlistItem_wishlistId_productId_key" ON "WishlistItem"("w
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Order_id_key" ON "Order"("id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Order_stripeSessionId_key" ON "Order"("stripeSessionId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Banner_id_key" ON "Banner"("id");
@@ -402,18 +359,6 @@ ALTER TABLE "CartItem" ADD CONSTRAINT "CartItem_cartId_fkey" FOREIGN KEY ("cartI
 
 -- AddForeignKey
 ALTER TABLE "CartItem" ADD CONSTRAINT "CartItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CartCouponApplication" ADD CONSTRAINT "CartCouponApplication_cartId_fkey" FOREIGN KEY ("cartId") REFERENCES "Cart"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CartCouponApplication" ADD CONSTRAINT "CartCouponApplication_couponId_fkey" FOREIGN KEY ("couponId") REFERENCES "Coupon"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CartCouponAppliedItem" ADD CONSTRAINT "CartCouponAppliedItem_applicationId_fkey" FOREIGN KEY ("applicationId") REFERENCES "CartCouponApplication"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CartCouponAppliedItem" ADD CONSTRAINT "CartCouponAppliedItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Wishlist" ADD CONSTRAINT "Wishlist_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
