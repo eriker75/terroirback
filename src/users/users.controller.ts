@@ -58,6 +58,7 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Login exitoso. Devuelve usuario + accessToken.' })
   @ApiResponse({ status: 401, description: 'Credenciales incorrectas o usuario inactivo.' })
   login(@Body() loginUserDto: LoginUserDto) {
+    console.log(`[UsersController] Intentando login para el usuario: ${loginUserDto.email}`);
     return this.usersService.login(loginUserDto);
   }
 

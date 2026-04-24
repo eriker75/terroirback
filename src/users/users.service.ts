@@ -67,6 +67,7 @@ export class UsersService {
 
   async login(loginUserDto: LoginUserDto) {
     const { email, password } = loginUserDto;
+    console.log(`[UsersService] Buscando usuario: ${email}`);
 
     const user = await this.prisma.user.findUnique({
       where: { email },
@@ -82,18 +83,24 @@ export class UsersService {
     });
 
     if (!user) {
+      console.log(`[UsersService] Usuario no encontrado: ${email}`);
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
+    console.log(`[UsersService] Usuario encontrado. Estado: ${user.status}`);
+
     if (user.status !== 'active') {
+      console.log(`[UsersService] Usuario inactivo: ${email}`);
       throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
+      console.log(`[UsersService] Contraseña incorrecta para el usuario: ${email}`);
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
+    console.log(`[UsersService] Login exitoso para: ${email}`);
     const { password: _, ...userWithoutPassword } = user;
     const accessToken = this.signToken(user.id);
     return { ...userWithoutPassword, accessToken };

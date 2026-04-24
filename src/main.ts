@@ -14,6 +14,9 @@ async function bootstrap() {
     }),
   );
 
+  app.setGlobalPrefix('api');
+
+
   const config = new DocumentBuilder()
     .setTitle('Terroir E-commerce API')
     .setDescription(
