@@ -17,7 +17,7 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { OrderQueryDto } from './dto/order-query.dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -58,13 +58,20 @@ export class OrdersController {
 
   // ── Admin ────────────────────────────────────────────────────────────────
 
+  @Get('stats')
+  @Auth(ValidRoles.admin)
+  @ApiOperation({ summary: '[Admin] Conteo de pedidos por estado' })
+  getOrderStats() {
+    return this.ordersService.getOrderStats();
+  }
+
   @Get()
   @Auth(ValidRoles.admin)
-  @ApiOperation({ summary: '[Admin] Obtener todos los pedidos' })
+  @ApiOperation({ summary: '[Admin] Listar pedidos con filtros y paginación' })
   @ApiResponse({ status: 200, description: 'Lista de pedidos.' })
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.ordersService.findAll(paginationDto);
+  findAll(@Query() queryDto: OrderQueryDto) {
+    return this.ordersService.findAll(queryDto);
   }
 
   @Patch(':id')

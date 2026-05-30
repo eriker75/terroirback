@@ -4,112 +4,113 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Auth } from './decorators/auth.decorators';
 import { ValidRoles } from './interfaces';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { UserQueryDto } from './dto/user-query.dto';
 
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // Público: registro de nuevos clientes
+  // ── Auth ──────────────────────────────────────────────────────────────────────
+
   @Post('register')
   @ApiOperation({ summary: 'Registrar un nuevo cliente' })
-  @ApiResponse({ status: 201, description: 'Cliente registrado correctamente. Incluye accessToken.' })
-  @ApiResponse({ status: 400, description: 'Datos inválidos.' })
-  @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
+  @ApiResponse({ status: 201, description: 'Cliente registrado. Devuelve accessToken + refreshToken.' })
+  @ApiResponse({ status: 409, description: 'El correo ya está registrado.' })
   register(@Body() registerUserDto: RegisterUserDto) {
     return this.usersService.register(registerUserDto);
   }
 
-  // Admin: registrar un nuevo administrador
   @Post('register-admin')
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
   @ApiOperation({ summary: '[Admin] Registrar un nuevo administrador' })
-  @ApiResponse({ status: 201, description: 'Administrador registrado correctamente.' })
-  @ApiResponse({ status: 400, description: 'Datos inválidos.' })
+  @ApiResponse({ status: 201, description: 'Administrador registrado.' })
   @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
+  @ApiResponse({ status: 403, description: 'Sin permisos.' })
   registerAdmin(@Body() registerUserDto: RegisterUserDto) {
     return this.usersService.registerAdmin(registerUserDto);
   }
 
-  // Admin: crear usuario con control total (rol, estado, etc.)
+  @Post('login')
+  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiResponse({ status: 200, description: 'Login exitoso. Devuelve accessToken + refreshToken.' })
+  @ApiResponse({ status: 401, description: 'Credenciales incorrectas.' })
+  login(@Body() loginUserDto: LoginUserDto) {
+    return this.usersService.login(loginUserDto);
+  }
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Renovar access token con refresh token (rotación)' })
+  @ApiResponse({ status: 200, description: 'Nuevo par de tokens emitido.' })
+  @ApiResponse({ status: 401, description: 'Refresh token inválido o expirado.' })
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.usersService.refresh(dto.refreshToken);
+  }
+
+  @Post('logout')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cerrar sesión y revocar refresh token' })
+  @ApiResponse({ status: 200, description: 'Sesión cerrada.' })
+  @ApiResponse({ status: 401, description: 'No autenticado.' })
+  logout(@Body() dto: RefreshTokenDto) {
+    return this.usersService.logout(dto.refreshToken);
+  }
+
+  // ── Admin CRUD ────────────────────────────────────────────────────────────────
+
   @Post()
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
   @ApiOperation({ summary: '[Admin] Crear usuario con control total' })
-  @ApiResponse({ status: 201, description: 'Usuario creado correctamente. Incluye accessToken.' })
-  @ApiResponse({ status: 400, description: 'Datos inválidos.' })
-  @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  @ApiResponse({ status: 409, description: 'El correo electrónico ya está registrado.' })
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
   }
 
-  // Público: login
-  @Post('login')
-  @ApiOperation({ summary: 'Iniciar sesión y obtener token JWT' })
-  @ApiResponse({ status: 200, description: 'Login exitoso. Devuelve usuario + accessToken.' })
-  @ApiResponse({ status: 401, description: 'Credenciales incorrectas o usuario inactivo.' })
-  login(@Body() loginUserDto: LoginUserDto) {
-    console.log(`[UsersController] Intentando login para el usuario: ${loginUserDto.email}`);
-    return this.usersService.login(loginUserDto);
-  }
-
-  // Admin: ver todos los usuarios
   @Get()
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '[Admin] Obtener todos los usuarios' })
-  @ApiResponse({ status: 200, description: 'Lista de usuarios.' })
-  @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.usersService.findAll(paginationDto);
+  @ApiOperation({ summary: '[Admin] Listar usuarios con paginación, búsqueda y filtros' })
+  findAll(@Query() queryDto: UserQueryDto) {
+    return this.usersService.findAll(queryDto);
   }
 
-  // Autenticado: ver perfil propio
+  @Get('stats')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Totales de clientes: total, activos, inactivos' })
+  getCustomerStats() {
+    return this.usersService.getCustomerStats();
+  }
+
   @Get(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener un usuario por ID' })
-  @ApiParam({ name: 'id', description: 'ID del usuario (cuid)' })
-  @ApiResponse({ status: 200, description: 'Usuario encontrado.' })
-  @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
+  @ApiOperation({ summary: 'Obtener usuario por ID' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
 
-  // Autenticado: actualizar perfil propio
   @Patch(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Actualizar un usuario' })
-  @ApiParam({ name: 'id', description: 'ID del usuario (cuid)' })
-  @ApiResponse({ status: 200, description: 'Usuario actualizado.' })
-  @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
+  @ApiOperation({ summary: 'Actualizar usuario' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
   update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
     return this.usersService.update(id, updateUserDto);
   }
 
-  // Admin: eliminar usuario
   @Delete(':id')
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '[Admin] Eliminar un usuario' })
-  @ApiParam({ name: 'id', description: 'ID del usuario (cuid)' })
-  @ApiResponse({ status: 200, description: 'Usuario eliminado.' })
-  @ApiResponse({ status: 401, description: 'No autenticado.' })
-  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
+  @ApiOperation({ summary: '[Admin] Eliminar usuario' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

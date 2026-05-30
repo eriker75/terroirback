@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
@@ -14,6 +15,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { UserQueryDto } from './dto/user-query.dto';
+
+/** Duración del refresh token: 30 días en ms */
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersService {
@@ -26,10 +31,29 @@ export class UsersService {
     addresses: true,
   } as const;
 
-  private signToken(userId: string): string {
+  // ── tokens ────────────────────────────────────────────────────────────────────
+
+  private signAccessToken(userId: string): string {
     const payload: JwtPayload = { id: userId };
     return this.jwtService.sign(payload);
   }
+
+  private async createRefreshToken(userId: string): Promise<string> {
+    const token = randomBytes(64).toString('hex');
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+    await this.prisma.refreshToken.create({ data: { token, userId, expiresAt } });
+    return token;
+  }
+
+  private async issueTokenPair(userId: string) {
+    const [accessToken, refreshToken] = await Promise.all([
+      this.signAccessToken(userId),
+      this.createRefreshToken(userId),
+    ]);
+    return { accessToken, refreshToken };
+  }
+
+  // ── usuarios ──────────────────────────────────────────────────────────────────
 
   private async createUser(data: Prisma.UserCreateInput) {
     const { password, ...rest } = data;
@@ -41,12 +65,17 @@ export class UsersService {
         include: this.userInclude,
       });
 
-      const accessToken = this.signToken(user.id);
-      return { ...user, accessToken };
-    } catch (error: any) {
-      if (error?.code === 'P2002') {
+      const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
+      return { ...user, accessToken, refreshToken };
+    } catch (error: unknown) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException(
-          `Ya existe un usuario registrado con ese correo electrónico`,
+          'Ya existe un usuario registrado con ese correo electrónico',
         );
       }
       throw error;
@@ -67,7 +96,7 @@ export class UsersService {
 
   async login(loginUserDto: LoginUserDto) {
     const { email, password } = loginUserDto;
-    console.log(`[UsersService] Buscando usuario: ${email}`);
+    console.log('[login] intento con email:', email);
 
     const user = await this.prisma.user.findUnique({
       where: { email },
@@ -83,38 +112,100 @@ export class UsersService {
     });
 
     if (!user) {
-      console.log(`[UsersService] Usuario no encontrado: ${email}`);
+      console.log('[login] usuario no encontrado para:', email);
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    console.log(`[UsersService] Usuario encontrado. Estado: ${user.status}`);
+    console.log('[login] usuario encontrado → status:', user.status, '| role:', user.role);
 
     if (user.status !== 'active') {
-      console.log(`[UsersService] Usuario inactivo: ${email}`);
+      console.log('[login] usuario inactivo');
       throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
+    console.log('[login] password válido:', isPasswordValid);
+
     if (!isPasswordValid) {
-      console.log(`[UsersService] Contraseña incorrecta para el usuario: ${email}`);
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    console.log(`[UsersService] Login exitoso para: ${email}`);
     const { password: _, ...userWithoutPassword } = user;
-    const accessToken = this.signToken(user.id);
-    return { ...userWithoutPassword, accessToken };
+    const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
+    console.log('[login] OK → id:', user.id);
+    return { ...userWithoutPassword, accessToken, refreshToken };
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  // ── refresh & logout ──────────────────────────────────────────────────────────
+
+  async refresh(rawToken: string) {
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { token: rawToken },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!stored || stored.isRevoked || stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token inválido o expirado');
+    }
+
+    if (stored.user.status !== 'active') {
+      throw new UnauthorizedException('Usuario inactivo');
+    }
+
+    // Rotación: revocar el token usado y emitir uno nuevo
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: { isRevoked: true },
+    });
+
+    const { accessToken, refreshToken } = await this.issueTokenPair(stored.user.id);
+    return { ...stored.user, accessToken, refreshToken };
+  }
+
+  async logout(rawToken: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: { token: rawToken, isRevoked: false },
+      data: { isRevoked: true },
+    });
+    return { message: 'Sesión cerrada correctamente' };
+  }
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────────
+
+  async findAll({ limit, offset, search, role, status }: UserQueryDto) {
+    const where: Prisma.UserWhereInput = {};
+
+    if (role) where.role = role;
+    if (status) where.status = status;
+
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
+        where,
         include: this.userInclude,
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
       }),
-      this.prisma.user.count(),
+      this.prisma.user.count({ where }),
     ]);
     return { data, total, limit, offset };
   }
@@ -149,9 +240,15 @@ export class UsersService {
 
   async remove(id: string) {
     await this.findOne(id);
+    return this.prisma.user.delete({ where: { id } });
+  }
 
-    return this.prisma.user.delete({
-      where: { id },
-    });
+  async getCustomerStats() {
+    const [total, active, inactive] = await this.prisma.$transaction([
+      this.prisma.user.count({ where: { role: 'customer' } }),
+      this.prisma.user.count({ where: { role: 'customer', status: 'active' } }),
+      this.prisma.user.count({ where: { role: 'customer', status: 'inactive' } }),
+    ]);
+    return { total, active, inactive };
   }
 }

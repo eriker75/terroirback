@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { OrderQueryDto } from './dto/order-query.dto';
 import { PrismaService } from '../database/database.service';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { Prisma, OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
@@ -36,17 +37,60 @@ export class OrdersService {
     });
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  async findAll({ limit, offset, status, dateFrom, dateTo, minTotal, maxTotal, search }: OrderQueryDto) {
+    const where: Prisma.OrderWhereInput = {};
+
+    if (status) where.status = status;
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {
+        ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+        ...(dateTo ? { lte: new Date(new Date(dateTo).setHours(23, 59, 59, 999)) } : {}),
+      };
+    }
+
+    if (minTotal !== undefined || maxTotal !== undefined) {
+      where.total = {
+        ...(minTotal !== undefined ? { gte: minTotal } : {}),
+        ...(maxTotal !== undefined ? { lte: maxTotal } : {}),
+      };
+    }
+
+    if (search) {
+      where.user = {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
+        where,
         include: this.orderInclude,
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
       }),
-      this.prisma.order.count(),
+      this.prisma.order.count({ where }),
     ]);
     return { data, total, limit, offset };
+  }
+
+  async getOrderStats() {
+    const statuses = [OrderStatus.PENDING, OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED];
+    const counts = await this.prisma.$transaction(
+      statuses.map((s) => this.prisma.order.count({ where: { status: s } })),
+    );
+    return {
+      PENDING: counts[0],
+      PAID: counts[1],
+      SHIPPED: counts[2],
+      CANCELLED: counts[3],
+      total: counts.reduce((a, b) => a + b, 0),
+    };
   }
 
   async findOne(id: string) {

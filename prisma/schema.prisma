@@ -29,6 +29,21 @@ enum ProductRelationType {
   CROSS_SELL
 }
 
+enum NotificationStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+}
+
+enum NotificationAudience {
+  ALL_USERS
+  NEW_USERS
+  VIP
+  INACTIVE
+  CART_ABANDONMENT
+  NEWSLETTER
+}
+
 // -----------------------------------------------------------------------------
 // USUARIOS
 // -----------------------------------------------------------------------------
@@ -53,13 +68,27 @@ model User {
   role             String    @default("customer")
   status           String    @default("active")
 
-  orders    Order[]
-  wishlist  Wishlist?
-  cart      Cart?
-  addresses Address[]
+  orders        Order[]
+  wishlist      Wishlist?
+  cart          Cart?
+  addresses     Address[]
+  refreshTokens RefreshToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
 }
 
 model Address {
@@ -89,6 +118,7 @@ model Category {
   id         String     @unique @default(uuid())
   name       String
   slug       String     @unique
+  image      String?
   parentId   String?
   parent     Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children   Category[] @relation("CategoryHierarchy")
@@ -96,14 +126,16 @@ model Category {
 }
 
 model Product {
-  productId   Int     @id @default(autoincrement())
-  id          String  @unique @default(uuid())
-  name        String
-  description String
-  price       Decimal
-  mainImage   String?
-  images      Json
-  stock       Int     @default(0)
+  productId    Int     @id @default(autoincrement())
+  id           String  @unique @default(uuid())
+  name         String
+  description  String
+  price        Decimal
+  mainImage    String?
+  images       Json
+  stock        Int     @default(0)
+  pointsPrice  Float?
+  pointsEarned Float?
 
   categoryId String?
   category   Category? @relation("CategoryProducts", fields: [categoryId], references: [id])
@@ -303,4 +335,35 @@ model Banner {
   buttonLink  String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// CONFIGURACIÓN GLOBAL DEL SITIO
+// -----------------------------------------------------------------------------
+model Setting {
+  settingId Int      @id @default(autoincrement())
+  id        String   @unique @default(uuid())
+  metaKey   String   @unique
+  metaValue String
+  metaGroup String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([metaGroup])
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICACIONES
+// -----------------------------------------------------------------------------
+model Notification {
+  id          String               @id @default(uuid())
+  title       String
+  message     String
+  audience    NotificationAudience @default(ALL_USERS)
+  status      NotificationStatus   @default(DRAFT)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  sentCount   Int                  @default(0)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 }

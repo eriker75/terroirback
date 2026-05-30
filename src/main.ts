@@ -1,10 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
+import { mkdirSync } from 'fs';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Crear directorio de uploads si no existe y servirlo como estático
+  const uploadsPath = join(process.cwd(), 'uploads');
+  mkdirSync(uploadsPath, { recursive: true });
+  app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -14,8 +22,12 @@ async function bootstrap() {
     }),
   );
 
-  app.setGlobalPrefix('api');
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3001'],
+    credentials: true,
+  });
 
+  app.setGlobalPrefix('api');
 
   const config = new DocumentBuilder()
     .setTitle('Terroir E-commerce API')

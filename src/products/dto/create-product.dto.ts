@@ -93,4 +93,24 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => ProductRelationDto)
   relatedProducts?: ProductRelationDto[];
+
+  @ApiPropertyOptional({
+    example: 500,
+    description: 'Costo en puntos para comprar el producto usando puntos acumulados',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  pointsPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Puntos que el usuario acumula al comprar este producto con dinero',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  pointsEarned?: number | null;
 }

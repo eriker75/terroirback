@@ -33,6 +33,8 @@ export class ProductsService {
     const { tagIds, attributes, categoryId, relatedProducts, ...productData } =
       createProductDto;
 
+    console.log('[create product] categoryId recibido:', JSON.stringify(categoryId), '| tipo:', typeof categoryId);
+
     return this.prisma.product.create({
       data: {
         ...productData,
@@ -88,9 +90,11 @@ export class ProductsService {
       where: { id },
       data: {
         ...productData,
-        ...(categoryId !== undefined
-          ? { category: { connect: { id: categoryId } } }
-          : {}),
+        ...(categoryId === undefined
+          ? {}
+          : categoryId
+            ? { category: { connect: { id: categoryId } } }
+            : { category: { disconnect: true } }),
         productTags: tagIds
           ? {
               deleteMany: {},

@@ -16,6 +16,7 @@ import { BannersModule } from './banners/banners.module';
 import { DatabaseModule } from './database/database.module';
 import { FilesModule } from './files/files.module';
 import { MailerModule } from './mailer/mailer.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { MailerModule } from './mailer/mailer.module';
     BannersModule,
     FilesModule,
     MailerModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

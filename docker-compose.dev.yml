@@ -89,6 +89,8 @@ services:
       - SMTP_USER=${SMTP_USER:-mailpit}
       - SMTP_PASS=${SMTP_PASS:-mailpit}
     volumes:
+      - ./src:/usr/src/app/src
+      - ./scripts:/usr/src/app/scripts
       - ./prisma:/usr/src/app/prisma
       - ./prisma.config.ts:/usr/src/app/prisma.config.ts
       - ./uploads:/usr/src/app/uploads
@@ -96,15 +98,6 @@ services:
       - ./public:/usr/src/app/public
     develop:
       watch:
-        - path: ./src
-          target: /usr/src/app/src
-          action: sync
-        - path: ./test
-          target: /usr/src/app/test
-          action: sync
-        - path: ./public
-          target: /usr/src/app/public
-          action: sync
         - path: ./package.json
           target: /usr/src/app/package.json
           action: rebuild

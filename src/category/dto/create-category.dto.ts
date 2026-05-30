@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsUrl, Matches, MaxLength } from 'class-validator';
 
 export class CreateCategoryDto {
   @ApiProperty({ example: 'Vinos Tintos' })
@@ -15,7 +15,12 @@ export class CreateCategoryDto {
   })
   slug: string;
 
-  @ApiPropertyOptional({ example: 'cldcategory123' })
+  @ApiPropertyOptional({ example: 'https://cdn.ejemplo.com/categoria.jpg' })
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @ApiPropertyOptional({ example: 'uuid-categoria-padre' })
   @IsOptional()
   @IsString()
   parentId?: string;

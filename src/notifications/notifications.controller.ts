@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
+import { Auth } from '../users/decorators/auth.decorators';
+import { ValidRoles } from '../users/interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('notifications')
 @Controller('notifications')
@@ -10,43 +13,56 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Crear una nueva notificación' })
-  @ApiResponse({ status: 201, description: 'Notificación creada correctamente.' })
-  create(@Body() createNotificationDto: CreateNotificationDto) {
-    return this.notificationsService.create(createNotificationDto);
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Crear una notificación' })
+  @ApiResponse({ status: 201 })
+  create(@Body() dto: CreateNotificationDto) {
+    return this.notificationsService.create(dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Obtener todas las notificaciones' })
-  @ApiResponse({ status: 200, description: 'Lista de notificaciones.' })
-  findAll() {
-    return this.notificationsService.findAll();
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Listar notificaciones' })
+  findAll(@Query() paginationDto: PaginationDto) {
+    return this.notificationsService.findAll(paginationDto);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener una notificación por ID' })
-  @ApiParam({ name: 'id', description: 'ID numérico de la notificación' })
-  @ApiResponse({ status: 200, description: 'Notificación encontrada.' })
-  @ApiResponse({ status: 404, description: 'Notificación no encontrada.' })
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Obtener una notificación' })
+  @ApiParam({ name: 'id', description: 'UUID de la notificación' })
   findOne(@Param('id') id: string) {
-    return this.notificationsService.findOne(+id);
+    return this.notificationsService.findOne(id);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar una notificación' })
-  @ApiParam({ name: 'id', description: 'ID numérico de la notificación' })
-  @ApiResponse({ status: 200, description: 'Notificación actualizada.' })
-  @ApiResponse({ status: 404, description: 'Notificación no encontrada.' })
-  update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto) {
-    return this.notificationsService.update(+id, updateNotificationDto);
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Actualizar una notificación' })
+  @ApiParam({ name: 'id', description: 'UUID de la notificación' })
+  update(@Param('id') id: string, @Body() dto: UpdateNotificationDto) {
+    return this.notificationsService.update(id, dto);
+  }
+
+  @Post(':id/send')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Enviar notificación ahora' })
+  @ApiParam({ name: 'id', description: 'UUID de la notificación' })
+  @ApiResponse({ status: 200, description: 'Notificación marcada como enviada.' })
+  sendNow(@Param('id') id: string) {
+    return this.notificationsService.sendNow(id);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Eliminar una notificación' })
-  @ApiParam({ name: 'id', description: 'ID numérico de la notificación' })
-  @ApiResponse({ status: 200, description: 'Notificación eliminada.' })
-  @ApiResponse({ status: 404, description: 'Notificación no encontrada.' })
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Eliminar una notificación' })
+  @ApiParam({ name: 'id', description: 'UUID de la notificación' })
   remove(@Param('id') id: string) {
-    return this.notificationsService.remove(+id);
+    return this.notificationsService.remove(id);
   }
 }
