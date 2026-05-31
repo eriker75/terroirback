@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
+import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
 import { PrismaService } from '../database/database.service';
 import { Prisma, OrderStatus } from '@prisma/client';
 
@@ -135,6 +136,66 @@ export class OrdersService {
 
     return this.prisma.order.delete({
       where: { id },
+    });
+  }
+
+  async getAnalytics(dto: OrderAnalyticsQueryDto) {
+    const now = new Date().getFullYear();
+    const { period, year = now, yearFrom = 2020, yearTo = now } = dto;
+
+    const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+    const sum = (rows: { total: Prisma.Decimal }[]) =>
+      rows.reduce((acc, r) => acc + parseFloat(r.total.toString()), 0);
+
+    if (period === AnalyticsPeriod.ANNUAL) {
+      const orders = await this.prisma.order.findMany({
+        where: {
+          status: { not: OrderStatus.CANCELLED },
+          createdAt: {
+            gte: new Date(yearFrom, 0, 1),
+            lte: new Date(yearTo, 11, 31, 23, 59, 59),
+          },
+        },
+        select: { createdAt: true, total: true },
+      });
+
+      return Array.from({ length: yearTo - yearFrom + 1 }, (_, i) => {
+        const y = yearFrom + i;
+        const rows = orders.filter((o) => o.createdAt.getFullYear() === y);
+        return { label: String(y), ventas: rows.length, ingresos: sum(rows) };
+      });
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: { not: OrderStatus.CANCELLED },
+        createdAt: {
+          gte: new Date(year, 0, 1),
+          lte: new Date(year, 11, 31, 23, 59, 59),
+        },
+      },
+      select: { createdAt: true, total: true },
+    });
+
+    if (period === AnalyticsPeriod.MONTHLY) {
+      return MONTHS.map((label, i) => {
+        const rows = orders.filter((o) => o.createdAt.getMonth() === i);
+        return { label, ventas: rows.length, ingresos: sum(rows) };
+      });
+    }
+
+    if (period === AnalyticsPeriod.QUARTERLY) {
+      return [0, 1, 2, 3].map((q) => {
+        const rows = orders.filter((o) => Math.floor(o.createdAt.getMonth() / 3) === q);
+        return { label: `Q${q + 1}`, ventas: rows.length, ingresos: sum(rows) };
+      });
+    }
+
+    // SEMIANNUAL
+    return [0, 1].map((h) => {
+      const rows = orders.filter((o) => (o.createdAt.getMonth() < 6 ? 0 : 1) === h);
+      return { label: `H${h + 1}`, ventas: rows.length, ingresos: sum(rows) };
     });
   }
 }

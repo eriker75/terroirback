@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { AdjustStockDto, StockOperation } from './dto/adjust-stock.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 
@@ -83,7 +84,10 @@ export class ProductsService {
   async update(id: string, updateProductDto: UpdateProductDto) {
     await this.findOne(id);
 
-    const { tagIds, attributes, categoryId, relatedProducts, ...productData } =
+    // `stock` se ignora aquí a propósito: en productos existentes solo se modifica
+    // mediante adjustStock() (operación atómica add/subtract) para evitar pisar
+    // cambios concurrentes. Ver PATCH /products/:id/stock.
+    const { tagIds, attributes, categoryId, relatedProducts, stock: _stock, ...productData } =
       updateProductDto;
 
     return this.prisma.product.update({
@@ -116,6 +120,46 @@ export class ProductsService {
       },
       include: this.productInclude,
     });
+  }
+
+  // Ajuste relativo y atómico del stock. No lee-y-pisa: usa increment/decrement
+  // a nivel de base de datos, por lo que es seguro ante operaciones concurrentes
+  // (p. ej. una compra que descuenta stock al mismo tiempo).
+  async adjustStock(id: string, { operation, quantity }: AdjustStockDto) {
+    if (operation === StockOperation.ADD) {
+      try {
+        return await this.prisma.product.update({
+          where: { id },
+          data: { stock: { increment: quantity } },
+          include: this.productInclude,
+        });
+      } catch {
+        throw new NotFoundException(`Product with id ${id} not found`);
+      }
+    }
+
+    // SUBTRACT — solo descuenta si hay stock suficiente. La condición `stock >= quantity`
+    // viaja en el WHERE, así que la verificación y la resta son una sola operación atómica.
+    const result = await this.prisma.product.updateMany({
+      where: { id, stock: { gte: quantity } },
+      data: { stock: { decrement: quantity } },
+    });
+
+    if (result.count === 0) {
+      // O el producto no existe, o no hay stock suficiente. Distinguimos ambos casos.
+      const product = await this.prisma.product.findUnique({
+        where: { id },
+        select: { stock: true },
+      });
+      if (!product) {
+        throw new NotFoundException(`Product with id ${id} not found`);
+      }
+      throw new BadRequestException(
+        `Stock insuficiente: hay ${product.stock} unidades y se intentan restar ${quantity}`,
+      );
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: string) {

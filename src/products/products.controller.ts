@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@ne
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -10,7 +11,7 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 @ApiTags('products')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(private readonly productsService: ProductsService) { }
 
   // Admin: crear producto
   @Post()
@@ -40,6 +41,19 @@ export class ProductsController {
   @ApiResponse({ status: 404, description: 'Producto no encontrado.' })
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(id);
+  }
+
+  // Admin: ajustar stock de forma relativa y atómica (sumar/restar)
+  @Patch(':id/stock')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Sumar o restar unidades al stock (atómico)' })
+  @ApiParam({ name: 'id', description: 'ID del producto (uuid)' })
+  @ApiResponse({ status: 200, description: 'Stock ajustado.' })
+  @ApiResponse({ status: 400, description: 'Stock insuficiente para restar.' })
+  @ApiResponse({ status: 404, description: 'Producto no encontrado.' })
+  adjustStock(@Param('id') id: string, @Body() adjustStockDto: AdjustStockDto) {
+    return this.productsService.adjustStock(id, adjustStockDto);
   }
 
   // Admin: editar producto
