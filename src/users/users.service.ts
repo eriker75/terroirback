@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -57,6 +58,10 @@ export class UsersService {
 
   private async createUser(data: Prisma.UserCreateInput) {
     const { password, ...rest } = data;
+    // password es opcional en el modelo (cuentas sólo-social), pero el alta clásica la exige
+    if (!password) {
+      throw new BadRequestException('Se requiere una contraseña');
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
@@ -121,6 +126,11 @@ export class UsersService {
     if (user.status !== 'active') {
       console.log('[login] usuario inactivo');
       throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
+    }
+
+    if (!user.password) {
+      // Cuenta creada vía login social (Google/Apple): no tiene contraseña local
+      throw new UnauthorizedException('Esta cuenta inicia sesión con Google/Apple');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);

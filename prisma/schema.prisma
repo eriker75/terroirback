@@ -71,7 +71,7 @@ model User {
   firstName        String
   lastName         String
   avatar           String?
-  password         String
+  password         String?   // opcional: las cuentas creadas vía login social (Google/Apple) no tienen contraseña local
   phone            String
   address          String
   city             String
@@ -81,11 +81,12 @@ model User {
   role             String    @default("customer")
   status           String    @default("active")
 
-  orders        Order[]
-  wishlist      Wishlist?
-  cart          Cart?
-  addresses     Address[]
-  refreshTokens RefreshToken[]
+  orders         Order[]
+  wishlist       Wishlist?
+  cart           Cart?
+  addresses      Address[]
+  refreshTokens  RefreshToken[]
+  socialAccounts SocialAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -105,6 +106,47 @@ model RefreshToken {
   @@index([userId])
   @@index([token])
   @@map("refresh_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// AUTENTICACIÓN SOCIAL (Google, Apple, …)
+// -----------------------------------------------------------------------------
+// Cada fila vincula la cuenta de un proveedor externo (OIDC/OAuth) con un User
+// local. Un mismo User puede tener varias (p.ej. Google y Apple a la vez).
+//
+// Flujo de login social previsto:
+//   1) El cliente obtiene un id_token del proveedor (Google/Apple).
+//   2) El backend lo verifica y extrae el provider + el `sub` (= providerAccountId).
+//   3) Se busca por (provider, providerAccountId):
+//        · existe     → se emite el par de tokens para el User vinculado.
+//        · no existe   → se crea el User (sin password) + su SocialAccount,
+//                        o se vincula al User existente que ya tenga ese email.
+model SocialAccount {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider          String    // "google" | "apple" | ...
+  providerAccountId String    // id estable del proveedor (claim `sub` del id_token)
+
+  // Snapshot informativo del perfil que devuelve el proveedor
+  email             String?
+  name              String?
+  avatar            String?
+
+  // Tokens del proveedor (opcionales; sólo si más adelante consumimos sus APIs).
+  // Si se almacenan, conviene cifrarlos en reposo.
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // No puede vincularse dos veces la misma cuenta del mismo proveedor
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("social_accounts")
 }
 
 model Address {

@@ -4,9 +4,9 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
+import { FilterProductsDto } from './dto/filter-products.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
-import { PaginationDto } from '../common/dto/pagination.dto';
 
 @ApiTags('products')
 @Controller('products')
@@ -25,12 +25,13 @@ export class ProductsController {
     return this.productsService.create(createProductDto);
   }
 
-  // Público: catálogo de productos
+  // Público: catálogo de productos con filtros (búsqueda, categoría, precio,
+  // puntos, tueste, origen, etiqueta, disponibilidad) y ordenamiento.
   @Get()
-  @ApiOperation({ summary: 'Obtener todos los productos' })
+  @ApiOperation({ summary: 'Obtener productos con filtros y paginación' })
   @ApiResponse({ status: 200, description: 'Lista de productos.' })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.productsService.findAll(paginationDto);
+  findAll(@Query() filterDto: FilterProductsDto) {
+    return this.productsService.findAll(filterDto);
   }
 
   // Público: detalle de producto
