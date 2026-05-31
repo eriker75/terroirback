@@ -22,9 +22,9 @@ const ALLOWED_MIME = /^image\/(jpe?g|png|webp|gif|avif|svg\+xml)$/;
 
 /**
  * Orquesta el almacenamiento físico de archivos (no toca base de datos).
- * Elige el backend (local o S3) según STORAGE_TYPE. La persistencia de los
- * metadatos en BD es responsabilidad de cada entidad (ver EntityImagesService),
- * por eso este servicio es agnóstico de la tabla destino.
+ * Elige el backend (local / s3 / gcs) según STORAGE_TYPE y devuelve la URL
+ * pública. Quien lo llama decide dónde guardar esa URL (Product.images[],
+ * Category.image, etc.).
  */
 @Injectable()
 export class FileService {

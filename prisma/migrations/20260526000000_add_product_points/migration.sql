@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE "Product" ADD COLUMN "pointsPrice" DOUBLE PRECISION;
-ALTER TABLE "Product" ADD COLUMN "pointsEarned" DOUBLE PRECISION;

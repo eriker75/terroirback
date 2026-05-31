@@ -89,6 +89,8 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("users")
 }
 
 model RefreshToken {
@@ -102,6 +104,7 @@ model RefreshToken {
 
   @@index([userId])
   @@index([token])
+  @@map("refresh_tokens")
 }
 
 model Address {
@@ -121,6 +124,8 @@ model Address {
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@map("addresses")
 }
 
 // -----------------------------------------------------------------------------
@@ -136,24 +141,8 @@ model Category {
   parent     Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children   Category[] @relation("CategoryHierarchy")
   products   Product[]  @relation("CategoryProducts")
-  imageFiles CategoryImage[]
-}
 
-// Galería de imágenes de una categoría (tabla dedicada, no genérica)
-model CategoryImage {
-  id         String   @id @default(uuid())
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  url        String
-  pathName   String
-  filename   String
-  mimeType   String
-  size       Int
-  position   Int      @default(0)
-  createdAt  DateTime @default(now())
-
-  @@index([categoryId])
-  @@map("category_images")
+  @@map("categories")
 }
 
 model Product {
@@ -182,27 +171,11 @@ model Product {
   cartItems     CartItem[]
   orderItems    OrderItem[]
   wishlistItems WishlistItem[]
-  imageFiles    ProductImage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
 
-// Galería de imágenes de un producto (tabla dedicada, no genérica)
-model ProductImage {
-  id        String   @id @default(uuid())
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  url       String
-  pathName  String
-  filename  String
-  mimeType  String
-  size      Int
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-
-  @@index([productId])
-  @@map("product_images")
+  @@map("products")
 }
 
 model ProductVariant {
@@ -211,6 +184,8 @@ model ProductVariant {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   name      String
   value     String
+
+  @@map("product_variants")
 }
 
 model ProductAttribute {
@@ -222,6 +197,7 @@ model ProductAttribute {
 
   @@index([productId])
   @@unique([productId, name])
+  @@map("product_attributes")
 }
 
 model Tag {
@@ -232,6 +208,8 @@ model Tag {
   productTags ProductTag[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+
+  @@map("tags")
 }
 
 model ProductTag {
@@ -242,6 +220,7 @@ model ProductTag {
 
   @@id([productId, tagId])
   @@index([tagId])
+  @@map("product_tags")
 }
 
 model ProductRelated {
@@ -257,6 +236,7 @@ model ProductRelated {
   @@unique([productId, relatedId, relationType])
   @@index([productId])
   @@index([relatedId])
+  @@map("product_relations")
 }
 
 // -----------------------------------------------------------------------------
@@ -280,6 +260,8 @@ model Coupon {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("coupons")
 }
 
 model CouponProduct {
@@ -290,6 +272,7 @@ model CouponProduct {
 
   @@id([couponId, productId])
   @@index([productId])
+  @@map("coupon_products")
 }
 
 // -----------------------------------------------------------------------------
@@ -305,6 +288,8 @@ model Cart {
   coupon   Coupon? @relation(fields: [couponId], references: [id])
 
   items CartItem[]
+
+  @@map("carts")
 }
 
 model CartItem {
@@ -316,6 +301,7 @@ model CartItem {
   quantity  Int     @default(1)
 
   @@unique([cartId, productId])
+  @@map("cart_items")
 }
 
 
@@ -328,6 +314,8 @@ model Wishlist {
   userId     String         @unique
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   items      WishlistItem[]
+
+  @@map("wishlists")
 }
 
 model WishlistItem {
@@ -339,6 +327,7 @@ model WishlistItem {
 
   @@unique([wishlistId, productId])
   @@index([productId])
+  @@map("wishlist_items")
 }
 
 // -----------------------------------------------------------------------------
@@ -359,6 +348,8 @@ model Order {
 
   items     OrderItem[]
   createdAt DateTime    @default(now())
+
+  @@map("orders")
 }
 
 model OrderItem {
@@ -369,6 +360,8 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Decimal
+
+  @@map("order_items")
 }
 
 // -----------------------------------------------------------------------------
@@ -384,6 +377,8 @@ model Banner {
   buttonLink  String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@map("banners")
 }
 
 // -----------------------------------------------------------------------------
@@ -399,6 +394,7 @@ model Setting {
   updatedAt DateTime @updatedAt
 
   @@index([metaGroup])
+  @@map("settings")
 }
 
 // -----------------------------------------------------------------------------
@@ -415,6 +411,8 @@ model Notification {
   sentCount   Int                  @default(0)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+
+  @@map("notifications")
 }
 
 // -----------------------------------------------------------------------------
@@ -433,6 +431,7 @@ model ContactMessage {
 
   @@index([status])
   @@index([createdAt])
+  @@map("contact_messages")
 }
 
 // Lista negra anti-spam: emails, IPs o palabras clave que se rechazan
@@ -446,4 +445,5 @@ model ContactBlock {
 
   @@unique([type, value])
   @@index([type])
+  @@map("contact_blocks")
 }
