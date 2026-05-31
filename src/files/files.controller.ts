@@ -3,47 +3,34 @@ import {
   Post,
   UploadedFile,
   UseInterceptors,
-  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { randomBytes } from 'crypto';
+import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../users/decorators/auth.decorators';
-
-const storage = diskStorage({
-  destination: './uploads',
-  filename: (_req, file, cb) => {
-    const unique = randomBytes(16).toString('hex');
-    cb(null, `${unique}${extname(file.originalname)}`);
-  },
-});
+import { FileService } from './file.service';
 
 @ApiTags('files')
 @Controller('files')
 export class FilesController {
+  constructor(private readonly fileService: FileService) { }
+
+  // Subida genérica de imágenes. Pasa por FileService, así que respeta
+  // STORAGE_TYPE (local / s3 / gcs) — el archivo se guarda donde toque.
   @Post('upload')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Subir un archivo de imagen' })
+  @ApiOperation({ summary: 'Subir una imagen (usa el storage configurado: local/s3/gcs)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage,
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
-      fileFilter: (_req, file, cb) => {
-        if (!file.mimetype.startsWith('image/')) {
-          return cb(new BadRequestException('Solo se permiten imágenes'), false);
-        }
-        cb(null, true);
-      },
     }),
   )
-  uploadFile(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No se recibió ningún archivo');
-
-    const baseUrl = process.env.BACKEND_PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
-    return { url: `${baseUrl}/uploads/${file.filename}` };
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    // storeImage valida que sea imagen (400 si no lo es o si falta el archivo)
+    const meta = await this.fileService.storeImage(file);
+    return { url: meta.url };
   }
 }

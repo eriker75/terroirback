@@ -1,5 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  Controller, Get, Post, Body, Patch, Param, Delete, Query,
+  UploadedFile, UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam, ApiConsumes } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -7,11 +12,21 @@ import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { EntityImagesService } from '../files/entity-images.service';
+
+// Imágenes en memoria (buffer) para que el FileService decida dónde persistirlas
+const imageUpload = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+};
 
 @ApiTags('products')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) { }
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly imagesService: EntityImagesService,
+  ) { }
 
   // Admin: crear producto
   @Post()
@@ -54,6 +69,39 @@ export class ProductsController {
   @ApiResponse({ status: 404, description: 'Producto no encontrado.' })
   adjustStock(@Param('id') id: string, @Body() adjustStockDto: AdjustStockDto) {
     return this.productsService.adjustStock(id, adjustStockDto);
+  }
+
+  // ── Imágenes del producto (tabla product_images) ───────────────────────────
+
+  // Público: galería de imágenes del producto
+  @Get(':id/images')
+  @ApiOperation({ summary: 'Listar imágenes de un producto' })
+  @ApiParam({ name: 'id', description: 'ID del producto (uuid)' })
+  listImages(@Param('id') id: string) {
+    return this.imagesService.list('productImage', id);
+  }
+
+  // Admin: subir una imagen a la galería del producto
+  @Post(':id/images')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: '[Admin] Subir una imagen al producto' })
+  @ApiParam({ name: 'id', description: 'ID del producto (uuid)' })
+  @ApiResponse({ status: 201, description: 'Imagen subida.' })
+  @UseInterceptors(FileInterceptor('file', imageUpload))
+  uploadImage(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.imagesService.add('productImage', id, file);
+  }
+
+  // Admin: eliminar una imagen de la galería
+  @Delete('images/:imageId')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Eliminar una imagen del producto' })
+  @ApiParam({ name: 'imageId', description: 'ID de la imagen (uuid)' })
+  removeImage(@Param('imageId') imageId: string) {
+    return this.imagesService.remove('productImage', imageId);
   }
 
   // Admin: editar producto

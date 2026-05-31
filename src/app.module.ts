@@ -17,6 +17,7 @@ import { DatabaseModule } from './database/database.module';
 import { FilesModule } from './files/files.module';
 import { MailerModule } from './mailer/mailer.module';
 import { SettingsModule } from './settings/settings.module';
+import { ContactModule } from './contact/contact.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SettingsModule } from './settings/settings.module';
     FilesModule,
     MailerModule,
     SettingsModule,
+    ContactModule,
   ],
   controllers: [AppController],
   providers: [AppService],

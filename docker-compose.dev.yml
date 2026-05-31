@@ -96,6 +96,8 @@ services:
       - ./uploads:/usr/src/app/uploads
       - ./tmp:/usr/src/app/tmp
       - ./public:/usr/src/app/public
+      # Credenciales de Google Cloud (ADC) en solo-lectura para STORAGE_TYPE=gcs
+      - ./secrets:/usr/src/app/secrets:ro
     develop:
       watch:
         - path: ./package.json

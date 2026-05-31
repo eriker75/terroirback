@@ -44,6 +44,19 @@ enum NotificationAudience {
   NEWSLETTER
 }
 
+enum ContactMessageStatus {
+  NEW
+  READ
+  ARCHIVED
+  TRASHED
+}
+
+enum ContactBlockType {
+  EMAIL
+  IP
+  KEYWORD
+}
+
 // -----------------------------------------------------------------------------
 // USUARIOS
 // -----------------------------------------------------------------------------
@@ -123,6 +136,24 @@ model Category {
   parent     Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children   Category[] @relation("CategoryHierarchy")
   products   Product[]  @relation("CategoryProducts")
+  imageFiles CategoryImage[]
+}
+
+// Galería de imágenes de una categoría (tabla dedicada, no genérica)
+model CategoryImage {
+  id         String   @id @default(uuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  url        String
+  pathName   String
+  filename   String
+  mimeType   String
+  size       Int
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([categoryId])
+  @@map("category_images")
 }
 
 model Product {
@@ -151,9 +182,27 @@ model Product {
   cartItems     CartItem[]
   orderItems    OrderItem[]
   wishlistItems WishlistItem[]
+  imageFiles    ProductImage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Galería de imágenes de un producto (tabla dedicada, no genérica)
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  pathName  String
+  filename  String
+  mimeType  String
+  size      Int
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_images")
 }
 
 model ProductVariant {
@@ -366,4 +415,35 @@ model Notification {
   sentCount   Int                  @default(0)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// MENSAJES DE CONTACTO (formulario público → bandeja del dashboard)
+// -----------------------------------------------------------------------------
+model ContactMessage {
+  id        String               @id @default(uuid())
+  name      String
+  email     String
+  subject   String?
+  message   String
+  ipAddress String?
+  status    ContactMessageStatus @default(NEW)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Lista negra anti-spam: emails, IPs o palabras clave que se rechazan
+// automáticamente al recibir un mensaje de contacto.
+model ContactBlock {
+  id        String           @id @default(uuid())
+  type      ContactBlockType
+  value     String
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  @@unique([type, value])
+  @@index([type])
 }

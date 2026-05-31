@@ -9,8 +9,10 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Crear directorio de uploads si no existe y servirlo como estático
-  const uploadsPath = join(process.cwd(), 'uploads');
+  // Crear directorio de uploads si no existe y servirlo como estático.
+  // Debe coincidir con UPLOAD_ROOT que usa LocalStorageService, de lo contrario
+  // los archivos se guardarían en una ruta y se servirían desde otra (404).
+  const uploadsPath = process.env.UPLOAD_ROOT || join(process.cwd(), 'uploads');
   mkdirSync(uploadsPath, { recursive: true });
   app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
 

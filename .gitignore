@@ -42,6 +42,11 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# credenciales de cuentas de servicio (Google Cloud, etc.) — nunca commitear
+secrets/
+*-key.json
+gcs-key.json
+
 # temp directory
 .temp
 .tmp
