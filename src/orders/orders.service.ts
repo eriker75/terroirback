@@ -5,11 +5,15 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
 import { PrismaService } from '../database/database.service';
+import { BcvService } from '../bcv/bcv.service';
 import { Prisma, OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bcvService: BcvService,
+  ) {}
 
   private readonly orderInclude = {
     user: true,
@@ -54,6 +58,16 @@ export class OrdersService {
   ) {
     const { items, couponId } = dto;
     const email = dto.email.toLowerCase();
+
+    // La tasa BCV se calcula SIEMPRE en el servidor (el `bcvRate` del cliente se
+    // ignora). Sólo es relevante para pago_movil.
+    const bcv = await this.bcvService.getRateValue();
+
+    // Normaliza un código de banco a 4 dígitos; null si no hay dígitos.
+    const norm = (c?: string) => {
+      const d = (c ?? '').replace(/\D/g, '');
+      return d ? d.padStart(4, '0') : null;
+    };
 
     return this.prisma.$transaction(async (tx) => {
       // 1) Cargar los productos referenciados y validar que todos existan.
@@ -158,6 +172,16 @@ export class OrdersService {
       });
       const shippingAddressId = address.id;
 
+      // PostGIS DESHABILITADO (diferido): la columna `addresses.location` está
+      // comentada en el schema porque requiere la extensión `postgis`. Lat/lng ya
+      // se guardan en columnas Float. Para reactivar: habilita postgis, descomenta
+      // la columna en el schema y este bloque — IDEALMENTE FUERA de la transacción
+      // (con this.prisma.$executeRaw + try/catch) para que un fallo de PostGIS
+      // nunca revierta una orden válida:
+      // if (dto.latitude != null && dto.longitude != null) {
+      //   await this.prisma.$executeRaw`UPDATE addresses SET location = ST_SetSRID(ST_MakePoint(${dto.longitude}, ${dto.latitude}), 4326)::geography WHERE id = ${address.id}`;
+      // }
+
       // 5) Construir los items con el precio del servidor y calcular el total.
       const orderItems = items.map((item) => {
         const product = productById.get(item.productId)!;
@@ -174,22 +198,24 @@ export class OrdersService {
       );
 
       // 6) Construir los datos del pago.
+      //    - bcvRate/amountVes sólo tienen sentido para pago_movil.
+      //    - bank = código del banco DEL CLIENTE (normalizado a 4 dígitos) para
+      //      pago_movil; para efectivo/puntos/yummy queda sin asignar (null).
+      const isPagoMovil = dto.paymentMethod === 'pago_movil';
       const paymentData: Prisma.PaymentCreateWithoutOrderInput = {
         method: dto.paymentMethod,
         status: 'PENDING',
         amount: total,
         currency: 'USD',
+        bank: isPagoMovil ? norm(dto.bankCode) : null,
+        amountVes: isPagoMovil ? new Prisma.Decimal(total).times(bcv) : null,
       };
-      if (dto.paymentMethod === 'pago_movil') {
+      if (isPagoMovil) {
         paymentData.reference = dto.paymentReference ?? null;
         paymentData.payerIdDocument = dto.payerIdDocument ?? null;
         paymentData.payerName = dto.payerName ?? null;
         paymentData.payerPhone = dto.payerPhone ?? null;
-        paymentData.bank = 'R4';
-        paymentData.bcvRate = dto.bcvRate ?? null;
-        paymentData.amountVes = dto.bcvRate
-          ? new Prisma.Decimal(total).times(dto.bcvRate)
-          : null;
+        paymentData.bcvRate = bcv;
       }
 
       // 7) Crear el pedido en estado PENDING con sus items y su pago.
@@ -291,6 +317,26 @@ export class OrdersService {
       throw new NotFoundException(`Order with id ${id} not found`);
     }
 
+    return order;
+  }
+
+  // Seguimiento público: devuelve sólo un subconjunto seguro (sin email,
+  // cédula, teléfono ni dirección) porque la ruta es pública.
+  async findOneForTracking(id: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        total: true,
+        createdAt: true,
+        items: {
+          select: { id: true, quantity: true, price: true, product: { select: { name: true } } },
+        },
+        payment: { select: { method: true, status: true } },
+      },
+    });
+    if (!order) throw new NotFoundException(`Pedido ${id} no encontrado`);
     return order;
   }
 

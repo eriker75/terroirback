@@ -65,6 +65,9 @@ services:
       dockerfile: Dockerfile.dev
     container_name: terroir_backend
     image: terroir_backend_dev
+    # tini como PID 1: reapea los procesos hijos del watcher y reenvía señales,
+    # liberando el puerto al recargar → evita "EADDRINUSE :::3000".
+    init: true
     restart: always
     ports:
       - "${BACKEND_PORT:-3000}:3000"

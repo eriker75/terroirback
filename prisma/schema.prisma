@@ -166,6 +166,12 @@ model Address {
   country       String   @default("Venezuela")
   latitude      Float?
   longitude     Float?
+  // PostGIS DESHABILITADO (diferido): requiere la extensión `postgis` en Postgres
+  // (imagen postgis/postgis o `CREATE EXTENSION postgis`). Hoy la ubicación se
+  // guarda en `latitude`/`longitude` (Float). Para reactivar: habilita postgis,
+  // descomenta la línea de abajo y el bloque $executeRaw en orders.service. Prisma
+  // NO escribe tipos Unsupported (se puebla con SQL crudo). Ver sql/bcv_postgis.sql.
+  // location      Unsupported("geography(Point, 4326)")?
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -449,7 +455,7 @@ model Payment {
   payerIdDocument String?
   payerName       String?
   payerPhone      String?
-  bank            String?   @default("R4")
+  bank            String?
   bcvRate         Decimal?
   amountVes       Decimal?
   rawWebhook      Json?
@@ -492,6 +498,21 @@ model Setting {
 
   @@index([metaGroup])
   @@map("settings")
+}
+
+// -----------------------------------------------------------------------------
+// TASA BCV (USD → VES)
+// -----------------------------------------------------------------------------
+// Historial de tasas. La fila más reciente (createdAt desc) es la tasa vigente.
+model BcvRate {
+  id        String   @id @default(uuid())
+  rate      Decimal  @db.Decimal(18, 4)
+  source    String   // 'EXCHANGERATE_API' | 'MANUAL' | 'R4'
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("bcv_rates")
 }
 
 // -----------------------------------------------------------------------------

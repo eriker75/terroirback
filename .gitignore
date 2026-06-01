@@ -41,6 +41,9 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 .env.local
+# .env.prod NO debe commitearse (tiene secretos reales). Usa .env.prod.example.
+.env.prod
+!.env.prod.example
 
 # credenciales de cuentas de servicio (Google Cloud, etc.) — nunca commitear
 secrets/

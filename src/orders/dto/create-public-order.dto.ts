@@ -119,7 +119,18 @@ export class CreatePublicOrderDto {
   @IsString()
   payerPhone?: string;
 
-  @ApiPropertyOptional({ example: 36.5, description: 'Tasa BCV USD→VES usada en el pago' })
+  @ApiPropertyOptional({
+    example: '0102',
+    description: 'Código del banco del cliente (pago móvil). Se normaliza a 4 dígitos.',
+  })
+  @IsOptional()
+  @IsString()
+  bankCode?: string;
+
+  @ApiPropertyOptional({
+    example: 36.5,
+    description: 'Tasa BCV USD→VES. IGNORADO: la tasa se calcula en el servidor.',
+  })
   @IsOptional()
   @IsNumber()
   bcvRate?: number;

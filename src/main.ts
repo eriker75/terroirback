@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.enableShutdownHooks();
 
   // Crear directorio de uploads si no existe y servirlo como estático.
   // Debe coincidir con UPLOAD_ROOT que usa LocalStorageService, de lo contrario
@@ -54,7 +55,19 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
   
-  await app.listen(process.env.PORT ?? 3000);
+  // Bind explícito a 0.0.0.0 (requerido por Cloud Run; PORT lo inyecta el entorno).
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+
+  // Cierre ordenado: libera el puerto al recargar (evita EADDRINUSE en dev) y
+  // permite un apagado limpio en producción / Cloud Run.
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      void app.close().finally(() => process.exit(0));
+    });
+  }
 }
 
-bootstrap().then(console.log).catch(console.log);
+bootstrap().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

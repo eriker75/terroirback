@@ -19,6 +19,8 @@ import { MailerModule } from './mailer/mailer.module';
 import { SettingsModule } from './settings/settings.module';
 import { ContactModule } from './contact/contact.module';
 import { PaymentsModule } from './payments/payments.module';
+import { BcvModule } from './bcv/bcv.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { PaymentsModule } from './payments/payments.module';
     SettingsModule,
     ContactModule,
     PaymentsModule,
+    BcvModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Get, Param } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
@@ -19,5 +19,11 @@ export class CheckoutController {
   @ApiResponse({ status: 201, description: 'Pedido creado en estado PENDING.' })
   create(@Body() dto: CreatePublicOrderDto, @Req() req: Request) {
     return this.ordersService.createCheckout(dto, (req as any).user ?? null);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Seguimiento público de un pedido por su id (datos mínimos)' })
+  findOne(@Param('id') id: string) {
+    return this.ordersService.findOneForTracking(id);
   }
 }
