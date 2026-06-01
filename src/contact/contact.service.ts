@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -12,6 +13,8 @@ import { UpdateContactMessageDto } from './dto/update-contact-message.dto';
 import { QueryContactMessageDto } from './dto/query-contact-message.dto';
 import { CreateContactBlockDto } from './dto/create-contact-block.dto';
 import { QueryContactDto } from './dto/query-contact.dto';
+import { CreateContactDto } from './dto/create-contact.dto';
+import { UpdateContactDto } from './dto/update-contact.dto';
 
 // Anti-inundación: ventana deslizante en memoria por IP.
 const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
@@ -160,10 +163,20 @@ export class ContactService {
     const existing = await this.prisma.contactBlock.findUnique({
       where: { type_value: { type: dto.type, value } },
     });
-    if (existing) return existing; // idempotente: ya estaba bloqueado
+    if (existing) {
+      // Idempotente: ya estaba bloqueado. Si llega un contactId y el bloqueo
+      // aún no estaba vinculado, lo enlazamos; en caso contrario lo devolvemos.
+      if (dto.contactId && existing.contactId !== dto.contactId) {
+        return this.prisma.contactBlock.update({
+          where: { id: existing.id },
+          data: { contactId: dto.contactId },
+        });
+      }
+      return existing;
+    }
 
     return this.prisma.contactBlock.create({
-      data: { type: dto.type, value, reason: dto.reason },
+      data: { type: dto.type, value, reason: dto.reason, contactId: dto.contactId },
     });
   }
 
@@ -239,5 +252,73 @@ export class ContactService {
     });
 
     return { data, total, limit, offset };
+  }
+
+  // ── Admin: CRUD de contactos ───────────────────────────────────────────────
+  async createContact(dto: CreateContactDto) {
+    const email = dto.email.toLowerCase();
+    try {
+      return await this.prisma.contact.create({
+        data: { ...dto, email },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Ya existe un contacto con ese email');
+      }
+      throw error;
+    }
+  }
+
+  async updateContact(id: string, dto: UpdateContactDto) {
+    const existing = await this.prisma.contact.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Contacto ${id} no encontrado`);
+
+    const data: Prisma.ContactUpdateInput = { ...dto };
+    if (dto.email) data.email = dto.email.toLowerCase();
+
+    try {
+      return await this.prisma.contact.update({ where: { id }, data });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Ya existe un contacto con ese email');
+      }
+      throw error;
+    }
+  }
+
+  async deleteContact(id: string) {
+    const existing = await this.prisma.contact.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Contacto ${id} no encontrado`);
+    // orders/messages/blocks tienen contactId opcional con SetNull, así que es
+    // seguro borrar el contacto sin dejar referencias colgantes.
+    return this.prisma.contact.delete({ where: { id } });
+  }
+
+  // Admin: bloquea (lista negra) el email de un contacto. Idempotente por el
+  // unique (type, value); enlaza el bloqueo con el contacto vía contactId.
+  async blockContact(id: string, reason?: string) {
+    const contact = await this.prisma.contact.findUnique({ where: { id } });
+    if (!contact) throw new NotFoundException(`Contacto ${id} no encontrado`);
+
+    const value = contact.email.toLowerCase();
+    return this.prisma.contactBlock.upsert({
+      where: { type_value: { type: ContactBlockType.EMAIL, value } },
+      create: {
+        type: ContactBlockType.EMAIL,
+        value,
+        reason: reason ?? 'Bloqueado desde contactos',
+        contactId: contact.id,
+      },
+      update: {
+        contactId: contact.id,
+        ...(reason ? { reason } : {}),
+      },
+    });
   }
 }

@@ -20,4 +20,12 @@ export class CreateContactBlockDto {
   @IsString()
   @MaxLength(200)
   reason?: string;
+
+  @ApiPropertyOptional({
+    example: 'b1a2c3d4-...',
+    description: 'UUID del contacto del que proviene este bloqueo (opcional)',
+  })
+  @IsOptional()
+  @IsString()
+  contactId?: string;
 }
