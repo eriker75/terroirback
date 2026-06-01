@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { QueryPaymentDto } from './dto/query-payment.dto';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly loyalty: LoyaltyService,
+  ) {}
 
   // Listado de pagos (admin) con filtro opcional por estado y paginación.
   async findAll({ limit, offset, status, method, bank, search, dateFrom, dateTo }: QueryPaymentDto) {
@@ -61,8 +65,8 @@ export class PaymentsService {
     // Actualizamos el pago y (si pasa a COMPLETED) promovemos la orden a PAID
     // de forma atómica: o se aplican ambos cambios o ninguno (si la orden no
     // existe / falla la 2da escritura, se revierte el cambio del pago).
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.payment.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const upd = await tx.payment.update({
         where: { id },
         data: {
           status,
@@ -78,7 +82,15 @@ export class PaymentsService {
         });
       }
 
-      return updated;
+      return upd;
     });
+
+    // Tras confirmar el pago (orden ya PAID), acredita los puntos al cliente.
+    // Idempotente y best-effort: no revierte la confirmación si algo falla.
+    if (status === 'COMPLETED') {
+      await this.loyalty.awardForOrder(payment.orderId);
+    }
+
+    return updated;
   }
 }

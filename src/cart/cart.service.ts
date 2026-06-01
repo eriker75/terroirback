@@ -16,7 +16,9 @@ export class CartService {
     user: true,
     coupon: true,
     items: {
-      include: { product: true },
+      // attributes + category permiten que la web mapee el producto completo
+      // (badges de tueste/origen/categoría) al sincronizar el carrito.
+      include: { product: { include: { attributes: true, category: true } } },
     },
   } as const;
 

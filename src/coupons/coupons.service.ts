@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { PrismaService } from '../database/database.service';
@@ -59,6 +59,39 @@ export class CouponsService {
     }
 
     return coupon;
+  }
+
+  // Validación pública de un cupón por código (carrito/checkout). Devuelve los
+  // datos necesarios para que la web calcule el descuento. El descuento real se
+  // RE-CALCULA en el servidor al hacer checkout (ver OrdersService.createCheckout);
+  // este endpoint sólo es para previsualizar/validar en la UI.
+  async validateForCart(code: string, productIds: string[] = []) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { code },
+      include: { couponProducts: true },
+    });
+
+    if (!coupon) throw new NotFoundException(`Cupón "${code}" no encontrado`);
+    if (!coupon.isActive) throw new BadRequestException('El cupón está inactivo');
+    if (coupon.expiryDate && coupon.expiryDate < new Date())
+      throw new BadRequestException('El cupón está vencido');
+    if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit)
+      throw new BadRequestException('El cupón alcanzó su límite de uso');
+
+    const allowedProductIds = coupon.couponProducts.map((cp) => cp.productId);
+    if (allowedProductIds.length && productIds.length) {
+      const invalid = productIds.filter((id) => !allowedProductIds.includes(id));
+      if (invalid.length)
+        throw new BadRequestException('El cupón no aplica a algunos productos del carrito');
+    }
+
+    return {
+      id: coupon.id,
+      code: coupon.code,
+      discountType: coupon.discountType,
+      amount: coupon.amount,
+      allowedProductIds,
+    };
   }
 
   async update(id: string, updateCouponDto: UpdateCouponDto) {

@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { R4WebhooksService } from './webhooks.service';
 import { WebhooksController } from './webhooks.controller';
+import { LoyaltyModule } from '../loyalty/loyalty.module';
 
-// El servicio sólo usa PrismaService (global) y ConfigService (global). Confirma
-// el abono de forma atómica directamente sobre `payments`/`orders`, por lo que ya
-// NO depende de PaymentsModule.
+// El servicio usa PrismaService (global), ConfigService (global) y LoyaltyService
+// (para acreditar puntos al confirmar el abono). Confirma el abono de forma
+// atómica directamente sobre `payments`/`orders`, por lo que NO depende de PaymentsModule.
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, LoyaltyModule],
   controllers: [WebhooksController],
   providers: [R4WebhooksService],
 })

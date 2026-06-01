@@ -12,7 +12,9 @@ export class WishlistService {
     user: true,
     items: {
       include: {
-        product: true,
+        // attributes + category para que la web renderice la ficha completa
+        // del producto (ProductCard) directamente desde la base de datos.
+        product: { include: { attributes: true, category: true } },
       },
     },
   } as const;

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@ne
 import { CouponsService } from './coupons.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
+import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -22,6 +23,17 @@ export class CouponsController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createCouponDto: CreateCouponDto) {
     return this.couponsService.create(createCouponDto);
+  }
+
+  // Público: validar un cupón por código (lo usa el carrito/checkout de la
+  // tienda, donde el comprador puede ser invitado). No requiere autenticación.
+  @Post('validate')
+  @ApiOperation({ summary: 'Validar un cupón por código (público)' })
+  @ApiResponse({ status: 200, description: 'Cupón válido. Devuelve tipo/monto del descuento.' })
+  @ApiResponse({ status: 400, description: 'Cupón inactivo, vencido, agotado o no aplicable.' })
+  @ApiResponse({ status: 404, description: 'Cupón no encontrado.' })
+  validate(@Body() dto: ValidateCouponDto) {
+    return this.couponsService.validateForCart(dto.code, dto.productIds);
   }
 
   // Autenticado: ver cupones disponibles

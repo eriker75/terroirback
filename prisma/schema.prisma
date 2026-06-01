@@ -88,6 +88,7 @@ model User {
   refreshTokens  RefreshToken[]
   socialAccounts SocialAccount[]
   contacts       Contact[]
+  settings       UserSetting[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -407,6 +408,13 @@ model Order {
   total    Decimal
   status   OrderStatus @default(PENDING)
 
+  // Puntos de fidelidad que otorga este pedido. `pointsEarned` se calcula y
+  // congela al hacer checkout (snapshot, inmune a cambios posteriores del
+  // catálogo). `pointsAwarded` evita acreditarlos dos veces: sólo se suman al
+  // saldo del usuario cuando el pedido pasa a PAID (idempotente). Ver LoyaltyService.
+  pointsEarned  Int     @default(0)
+  pointsAwarded Boolean @default(false)
+
   items     OrderItem[]
   createdAt DateTime    @default(now())
 
@@ -498,6 +506,29 @@ model Setting {
 
   @@index([metaGroup])
   @@map("settings")
+}
+
+// -----------------------------------------------------------------------------
+// CONFIGURACIÓN / DATOS POR USUARIO (clave-valor)
+// -----------------------------------------------------------------------------
+// Almacén clave-valor por usuario (espejo de `settings` pero con scope de
+// usuario). Hoy guarda el saldo de puntos de fidelidad bajo la clave
+// `loyalty_points` (metaValue = entero serializado como string). El saldo se
+// acredita cuando un pedido pasa a PAID — ver LoyaltyService.awardForOrder, que
+// hace un UPSERT atómico con CAST a INTEGER para que increments concurrentes no
+// se pisen aunque metaValue sea texto.
+model UserSetting {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metaKey   String // p.ej. "loyalty_points"
+  metaValue String // valor serializado (para puntos: entero como string)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, metaKey])
+  @@index([userId])
+  @@map("user_settings")
 }
 
 // -----------------------------------------------------------------------------

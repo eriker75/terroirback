@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
+import { LoyaltyService } from '../loyalty/loyalty.service';
 import { R4WebhookNotificaDto } from './dto/r4-webhook-notifica.dto';
 import { R4WebhookConsultaDto } from './dto/r4-webhook-consulta.dto';
 
@@ -15,6 +16,7 @@ export class R4WebhooksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly loyalty: LoyaltyService,
   ) {}
 
   // Validación BLOQUEANTE del token: R4 es un llamador servidor-a-servidor que se
@@ -128,6 +130,8 @@ export class R4WebhooksService {
 
       if (confirmed) {
         this.logger.log(`Abono R4 confirmado (Referencia=${body.Referencia}) → orden PAID`);
+        // Acredita los puntos al cliente (idempotente, best-effort).
+        await this.loyalty.awardForOrder(payment.orderId);
       }
       return { abono: true };
     } catch (error) {

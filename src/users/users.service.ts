@@ -17,6 +17,7 @@ import { PrismaService } from '../database/database.service';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { UserQueryDto } from './dto/user-query.dto';
+import { LOYALTY_POINTS_KEY } from '../loyalty/loyalty.service';
 
 /** Duración del refresh token: 30 días en ms */
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -31,6 +32,19 @@ export class UsersService {
   private readonly userInclude = {
     addresses: true,
   } as const;
+
+  // Saldo de puntos de fidelidad del usuario (clave-valor en `user_settings`).
+  // Se adjunta al objeto user que devolvemos al cliente para que la web muestre
+  // su saldo (UserProfile.loyaltyPoints). 0 si aún no tiene fila.
+  private async getLoyaltyPoints(userId: string): Promise<number> {
+    const row = await this.prisma.userSetting.findUnique({
+      where: { userId_metaKey: { userId, metaKey: LOYALTY_POINTS_KEY } },
+      select: { metaValue: true },
+    });
+    if (!row) return 0;
+    const n = parseInt(row.metaValue, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
 
   // ── tokens ────────────────────────────────────────────────────────────────────
 
@@ -75,7 +89,8 @@ export class UsersService {
       await this.upsertContactForUser(user);
 
       const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
-      return { ...user, accessToken, refreshToken };
+      // Usuario recién creado: aún no tiene puntos acumulados.
+      return { ...user, loyaltyPoints: 0, accessToken, refreshToken };
     } catch (error: unknown) {
       if (
         error &&
@@ -176,8 +191,9 @@ export class UsersService {
 
     const { password: _, ...userWithoutPassword } = user;
     const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
+    const loyaltyPoints = await this.getLoyaltyPoints(user.id);
     console.log('[login] OK → id:', user.id);
-    return { ...userWithoutPassword, accessToken, refreshToken };
+    return { ...userWithoutPassword, loyaltyPoints, accessToken, refreshToken };
   }
 
   // ── refresh & logout ──────────────────────────────────────────────────────────
@@ -214,7 +230,8 @@ export class UsersService {
     });
 
     const { accessToken, refreshToken } = await this.issueTokenPair(stored.user.id);
-    return { ...stored.user, accessToken, refreshToken };
+    const loyaltyPoints = await this.getLoyaltyPoints(stored.user.id);
+    return { ...stored.user, loyaltyPoints, accessToken, refreshToken };
   }
 
   async logout(rawToken: string) {
@@ -264,7 +281,8 @@ export class UsersService {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    return user;
+    const loyaltyPoints = await this.getLoyaltyPoints(user.id);
+    return { ...user, loyaltyPoints };
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
