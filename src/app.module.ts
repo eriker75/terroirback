@@ -18,6 +18,7 @@ import { FilesModule } from './files/files.module';
 import { MailerModule } from './mailer/mailer.module';
 import { SettingsModule } from './settings/settings.module';
 import { ContactModule } from './contact/contact.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ContactModule } from './contact/contact.module';
     MailerModule,
     SettingsModule,
     ContactModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

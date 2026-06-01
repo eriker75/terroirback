@@ -26,6 +26,21 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 export class AddressController {
   constructor(private readonly addressService: AddressService) {}
 
+  // ── Admin ────────────────────────────────────────────────────────────────
+  // Ruta estática DELANTE de las paramétricas (`:id`) para que "admin" no se
+  // interprete como un id de dirección.
+
+  @Get('admin/all')
+  @Auth(ValidRoles.admin)
+  @ApiOperation({
+    summary: '[Admin] Todas las direcciones con su usuario propietario',
+  })
+  @ApiResponse({ status: 200, description: 'Lista paginada de direcciones.' })
+  @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
+  findAllForAdmin(@Query() paginationDto: PaginationDto) {
+    return this.addressService.findAllForAdmin(paginationDto);
+  }
+
   // ── Customer ─────────────────────────────────────────────────────────────
 
   // El userId de la dirección debe coincidir con el usuario autenticado

@@ -87,6 +87,7 @@ model User {
   addresses      Address[]
   refreshTokens  RefreshToken[]
   socialAccounts SocialAccount[]
+  contacts       Contact[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -163,9 +164,13 @@ model Address {
   state         String
   zip           String
   country       String   @default("Venezuela")
+  latitude      Float?
+  longitude     Float?
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  shippingOrders Order[] @relation("OrderShippingAddress")
 
   @@map("addresses")
 }
@@ -384,6 +389,14 @@ model Order {
   couponId String?
   coupon   Coupon? @relation(fields: [couponId], references: [id])
 
+  shippingAddressId String?
+  shippingAddress   Address?  @relation("OrderShippingAddress", fields: [shippingAddressId], references: [id])
+  contactId         String?
+  contact           Contact?  @relation(fields: [contactId], references: [id])
+  payment           Payment?
+  shipping          Decimal   @default(0)
+  notes             String?
+
   discount Decimal     @default(0)
   total    Decimal
   status   OrderStatus @default(PENDING)
@@ -404,6 +417,47 @@ model OrderItem {
   price     Decimal
 
   @@map("order_items")
+}
+
+model Contact {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String   @unique
+  phone     String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  orders    Order[]
+  messages  ContactMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("contacts")
+}
+
+model Payment {
+  id              String    @id @default(uuid())
+  orderId         String    @unique
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method          String    // 'pago_movil' | 'efectivo' | 'puntos' | 'yummy'
+  status          String    @default("PENDING") // PENDING|PROCESSING|COMPLETED|FAILED|REFUNDED
+  amount          Decimal
+  currency        String    @default("USD")
+  reference       String?
+  payerIdDocument String?
+  payerName       String?
+  payerPhone      String?
+  bank            String?   @default("R4")
+  bcvRate         Decimal?
+  amountVes       Decimal?
+  rawWebhook      Json?
+  confirmedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([reference])
+  @@map("payments")
 }
 
 // -----------------------------------------------------------------------------
@@ -468,6 +522,8 @@ model ContactMessage {
   message   String
   ipAddress String?
   status    ContactMessageStatus @default(NEW)
+  contactId String?
+  contact   Contact?             @relation(fields: [contactId], references: [id])
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 

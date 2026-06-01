@@ -70,6 +70,10 @@ export class UsersService {
         include: this.userInclude,
       });
 
+      // Best-effort: registra al usuario también como Contact (fuente: registro web).
+      // Nunca debe romper el alta si algo falla (p.ej. email duplicado en contacts).
+      await this.upsertContactForUser(user);
+
       const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
       return { ...user, accessToken, refreshToken };
     } catch (error: unknown) {
@@ -84,6 +88,36 @@ export class UsersService {
         );
       }
       throw error;
+    }
+  }
+
+  /**
+   * Crea/actualiza un Contact a partir de un User recién registrado, vinculándolo
+   * por su id. Best-effort: cualquier error se traga (sólo se loguea) para que
+   * jamás impida completar el alta del usuario.
+   */
+  private async upsertContactForUser(user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone?: string | null;
+  }): Promise<void> {
+    try {
+      const email = user.email.toLowerCase();
+      await this.prisma.contact.upsert({
+        where: { email },
+        create: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email,
+          phone: user.phone ?? undefined,
+          userId: user.id,
+        },
+        update: { userId: user.id },
+      });
+    } catch (error: unknown) {
+      console.error('[register] no se pudo crear/actualizar el Contact:', error);
     }
   }
 

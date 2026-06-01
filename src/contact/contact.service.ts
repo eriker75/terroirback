@@ -11,6 +11,7 @@ import { CreateContactMessageDto } from './dto/create-contact-message.dto';
 import { UpdateContactMessageDto } from './dto/update-contact-message.dto';
 import { QueryContactMessageDto } from './dto/query-contact-message.dto';
 import { CreateContactBlockDto } from './dto/create-contact-block.dto';
+import { QueryContactDto } from './dto/query-contact.dto';
 
 // Anti-inundación: ventana deslizante en memoria por IP.
 const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
@@ -29,6 +30,14 @@ export class ContactService {
     this.enforceRateLimit(ip);
     await this.assertNotBlocked(dto, ip);
 
+    // Nombre → firstName/lastName (best-effort: corte en el primer espacio).
+    const email = dto.email.toLowerCase();
+    const trimmedName = dto.name.trim();
+    const spaceIdx = trimmedName.indexOf(' ');
+    const firstName = spaceIdx === -1 ? trimmedName : trimmedName.slice(0, spaceIdx);
+    const lastName = spaceIdx === -1 ? '' : trimmedName.slice(spaceIdx + 1).trim();
+
+    // Vincula (o crea) el Contact por email y enlaza el mensaje con `contactId`.
     return this.prisma.contactMessage.create({
       data: {
         name: dto.name,
@@ -36,6 +45,12 @@ export class ContactService {
         subject: dto.subject,
         message: dto.message,
         ipAddress: ip,
+        contact: {
+          connectOrCreate: {
+            where: { email },
+            create: { email, firstName, lastName },
+          },
+        },
       },
     });
   }
@@ -156,5 +171,73 @@ export class ContactService {
     const block = await this.prisma.contactBlock.findUnique({ where: { id } });
     if (!block) throw new NotFoundException(`Bloqueo ${id} no encontrado`);
     return this.prisma.contactBlock.delete({ where: { id } });
+  }
+
+  // ── Admin: directorio de contactos ─────────────────────────────────────────
+  // Lista paginada de todos los Contact con su usuario (si lo hay) y la(s)
+  // fuente(s) de las que provienen: registro web, compra y/o formulario de
+  // contacto. Nunca expone la contraseña del usuario asociado.
+  async findAllContacts({ limit, offset, search }: QueryContactDto) {
+    const where: Prisma.ContactWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.contact.findMany({
+        where,
+        include: {
+          user: {
+            select: { id: true, email: true, role: true, status: true, password: true },
+          },
+          _count: { select: { orders: true, messages: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.contact.count({ where }),
+    ]);
+
+    const data = rows.map((row) => {
+      const orderCount = row._count.orders;
+      const messageCount = row._count.messages;
+
+      const sources: string[] = [];
+      if (row.user?.password) sources.push('registration');
+      if (orderCount > 0) sources.push('purchase');
+      if (messageCount > 0) sources.push('contact_form');
+
+      // Reexponemos el usuario SIN la contraseña.
+      const user = row.user
+        ? {
+            id: row.user.id,
+            email: row.user.email,
+            role: row.user.role,
+            status: row.user.status,
+          }
+        : null;
+
+      return {
+        id: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        phone: row.phone,
+        userId: row.userId,
+        user,
+        orderCount,
+        messageCount,
+        sources,
+        createdAt: row.createdAt,
+      };
+    });
+
+    return { data, total, limit, offset };
   }
 }

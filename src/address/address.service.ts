@@ -30,6 +30,25 @@ export class AddressService {
     return { data, total, limit, offset };
   }
 
+  // Admin: todas las direcciones con su usuario propietario (campos públicos:
+  // sin password ni datos sensibles). Para la vista "Direcciones" del dashboard.
+  async findAllForAdmin({ limit, offset }: PaginationDto) {
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.address.findMany({
+        include: {
+          user: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.address.count(),
+    ]);
+    return { data, total, limit, offset };
+  }
+
   async findOne(id: string) {
     const address = await this.prisma.address.findUnique({
       where: { id },

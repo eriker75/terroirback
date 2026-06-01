@@ -72,6 +72,12 @@ export class OrdersController {
   // ── Customer ─────────────────────────────────────────────────────────────
   // Rutas paramétricas al final para no capturar las rutas estáticas
 
+  @Get('me')
+  @ApiOperation({ summary: 'Pedidos del cliente autenticado' })
+  findMine(@GetUser() authUser: User) {
+    return this.ordersService.findByUser(authUser.id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo pedido' })
   create(@Body() createOrderDto: CreateOrderDto, @GetUser() authUser: User) {

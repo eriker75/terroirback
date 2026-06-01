@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
@@ -13,6 +14,9 @@ export class OrdersService {
   private readonly orderInclude = {
     user: true,
     coupon: true,
+    shippingAddress: true,
+    contact: true,
+    payment: true,
     items: {
       include: {
         product: true,
@@ -35,6 +39,189 @@ export class OrdersService {
         },
       },
       include: this.orderInclude,
+    });
+  }
+
+  // ── Checkout (invitado o autenticado) ─────────────────────────────────────
+  // Guarda al comprador como `customer` (lo crea si no existe por email), crea
+  // su Contact, su Address de envío y el Payment, y deja el pedido en PENDING.
+  // El precio y el total se calculan en el servidor a partir de los productos;
+  // el cliente NUNCA envía precios. Si llega un `authUser` (token válido) se
+  // asocia el pedido a su cuenta sin sobrescribir su perfil.
+  async createCheckout(
+    dto: CreatePublicOrderDto,
+    authUser?: { id: string; password?: string | null } | null,
+  ) {
+    const { items, couponId } = dto;
+    const email = dto.email.toLowerCase();
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1) Cargar los productos referenciados y validar que todos existan.
+      const productIds = items.map((item) => item.productId);
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, price: true },
+      });
+
+      const productById = new Map(products.map((p) => [p.id, p]));
+      const missing = productIds.filter((id) => !productById.has(id));
+      if (missing.length > 0) {
+        throw new BadRequestException(`Productos no encontrados: ${missing.join(', ')}`);
+      }
+
+      // 2) Determinar al comprador.
+      //    - Autenticado (token): se usa su id; NO se toca su perfil.
+      //    - Invitado: emparejado por email.
+      //        · no existe → se crea como invitado (sin contraseña) rol customer.
+      //        · existe pero invitado (sin contraseña) → se refrescan sus datos.
+      //        · existe con contraseña → sólo se le asocia el pedido (no se toca).
+      let userId: string;
+      if (authUser?.id) {
+        userId = authUser.id;
+      } else {
+        const existing = await tx.user.findUnique({
+          where: { email },
+          select: { id: true, password: true },
+        });
+
+        if (!existing) {
+          const created = await tx.user.create({
+            data: {
+              email,
+              firstName: dto.firstName,
+              lastName: dto.lastName,
+              phone: dto.phone,
+              address: dto.address,
+              city: dto.city ?? '',
+              state: dto.state ?? '',
+              zip: dto.zip ?? '',
+              country: dto.country ?? 'Venezuela',
+              role: 'customer',
+            },
+            select: { id: true },
+          });
+          userId = created.id;
+        } else {
+          userId = existing.id;
+          if (!existing.password) {
+            await tx.user.update({
+              where: { id: existing.id },
+              data: {
+                firstName: dto.firstName,
+                lastName: dto.lastName,
+                phone: dto.phone,
+                address: dto.address,
+                ...(dto.city !== undefined ? { city: dto.city } : {}),
+                ...(dto.state !== undefined ? { state: dto.state } : {}),
+                ...(dto.zip !== undefined ? { zip: dto.zip } : {}),
+                ...(dto.country !== undefined ? { country: dto.country } : {}),
+              },
+            });
+          }
+        }
+      }
+
+      // 3) Upsert del Contact (emparejado por email).
+      const contact = await tx.contact.upsert({
+        where: { email },
+        create: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email,
+          phone: dto.phone,
+          userId,
+        },
+        update: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          userId,
+        },
+      });
+      const contactId = contact.id;
+
+      // 4) Crear la dirección de envío vinculada al usuario.
+      const address = await tx.address.create({
+        data: {
+          userId,
+          label: dto.addressLabel ?? null,
+          recipientName: `${dto.firstName} ${dto.lastName}`.trim(),
+          phone: dto.phone,
+          line1: dto.address,
+          city: dto.city ?? '',
+          state: dto.state ?? '',
+          zip: dto.zip ?? '',
+          country: dto.country ?? 'Venezuela',
+          latitude: dto.latitude ?? null,
+          longitude: dto.longitude ?? null,
+        },
+      });
+      const shippingAddressId = address.id;
+
+      // 5) Construir los items con el precio del servidor y calcular el total.
+      const orderItems = items.map((item) => {
+        const product = productById.get(item.productId)!;
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          price: product.price,
+        };
+      });
+
+      const total = orderItems.reduce(
+        (acc, item) => acc.plus(new Prisma.Decimal(item.price).times(item.quantity)),
+        new Prisma.Decimal(0),
+      );
+
+      // 6) Construir los datos del pago.
+      const paymentData: Prisma.PaymentCreateWithoutOrderInput = {
+        method: dto.paymentMethod,
+        status: 'PENDING',
+        amount: total,
+        currency: 'USD',
+      };
+      if (dto.paymentMethod === 'pago_movil') {
+        paymentData.reference = dto.paymentReference ?? null;
+        paymentData.payerIdDocument = dto.payerIdDocument ?? null;
+        paymentData.payerName = dto.payerName ?? null;
+        paymentData.payerPhone = dto.payerPhone ?? null;
+        paymentData.bank = 'R4';
+        paymentData.bcvRate = dto.bcvRate ?? null;
+        paymentData.amountVes = dto.bcvRate
+          ? new Prisma.Decimal(total).times(dto.bcvRate)
+          : null;
+      }
+
+      // 7) Crear el pedido en estado PENDING con sus items y su pago.
+      return tx.order.create({
+        data: {
+          userId,
+          status: OrderStatus.PENDING,
+          discount: 0,
+          ...(couponId ? { couponId } : {}),
+          total,
+          shipping: 0,
+          notes: dto.notes ?? null,
+          shippingAddressId,
+          contactId,
+          items: {
+            create: orderItems,
+          },
+          payment: {
+            create: paymentData,
+          },
+        },
+        include: this.orderInclude,
+      });
+    });
+  }
+
+  // Pedidos del cliente autenticado, del más reciente al más antiguo.
+  findByUser(userId: string) {
+    return this.prisma.order.findMany({
+      where: { userId },
+      include: this.orderInclude,
+      orderBy: { createdAt: 'desc' },
     });
   }
 
