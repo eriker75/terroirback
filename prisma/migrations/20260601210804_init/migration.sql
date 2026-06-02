@@ -27,7 +27,7 @@ CREATE TABLE "users" (
     "firstName" TEXT NOT NULL,
     "lastName" TEXT NOT NULL,
     "avatar" TEXT,
-    "password" TEXT NOT NULL,
+    "password" TEXT,
     "phone" TEXT NOT NULL,
     "address" TEXT NOT NULL,
     "city" TEXT NOT NULL,
@@ -55,6 +55,24 @@ CREATE TABLE "refresh_tokens" (
 );
 
 -- CreateTable
+CREATE TABLE "social_accounts" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "providerAccountId" TEXT NOT NULL,
+    "email" TEXT,
+    "name" TEXT,
+    "avatar" TEXT,
+    "accessToken" TEXT,
+    "refreshToken" TEXT,
+    "tokenExpiresAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "social_accounts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "addresses" (
     "addressId" SERIAL NOT NULL,
     "id" TEXT NOT NULL,
@@ -68,6 +86,8 @@ CREATE TABLE "addresses" (
     "state" TEXT NOT NULL,
     "zip" TEXT NOT NULL,
     "country" TEXT NOT NULL DEFAULT 'Venezuela',
+    "latitude" DOUBLE PRECISION,
+    "longitude" DOUBLE PRECISION,
     "isDefault" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -227,9 +247,15 @@ CREATE TABLE "orders" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "couponId" TEXT,
+    "shippingAddressId" TEXT,
+    "contactId" TEXT,
+    "shipping" DECIMAL(65,30) NOT NULL DEFAULT 0,
+    "notes" TEXT,
     "discount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "total" DECIMAL(65,30) NOT NULL,
     "status" "OrderStatus" NOT NULL DEFAULT 'PENDING',
+    "pointsEarned" INTEGER NOT NULL DEFAULT 0,
+    "pointsAwarded" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "orders_pkey" PRIMARY KEY ("orderId")
@@ -244,6 +270,43 @@ CREATE TABLE "order_items" (
     "price" DECIMAL(65,30) NOT NULL,
 
     CONSTRAINT "order_items_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "contacts" (
+    "id" TEXT NOT NULL,
+    "firstName" TEXT NOT NULL,
+    "lastName" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "phone" TEXT,
+    "userId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "contacts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "payments" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "method" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "amount" DECIMAL(65,30) NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'USD',
+    "reference" TEXT,
+    "payerIdDocument" TEXT,
+    "payerName" TEXT,
+    "payerPhone" TEXT,
+    "bank" TEXT,
+    "bcvRate" DECIMAL(65,30),
+    "amountVes" DECIMAL(65,30),
+    "rawWebhook" JSONB,
+    "confirmedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "payments_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -275,6 +338,29 @@ CREATE TABLE "settings" (
 );
 
 -- CreateTable
+CREATE TABLE "user_settings" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "metaKey" TEXT NOT NULL,
+    "metaValue" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "user_settings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "bcv_rates" (
+    "id" TEXT NOT NULL,
+    "rate" DECIMAL(18,4) NOT NULL,
+    "source" TEXT NOT NULL,
+    "note" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "bcv_rates_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "notifications" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -299,6 +385,7 @@ CREATE TABLE "contact_messages" (
     "message" TEXT NOT NULL,
     "ipAddress" TEXT,
     "status" "ContactMessageStatus" NOT NULL DEFAULT 'NEW',
+    "contactId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -311,6 +398,7 @@ CREATE TABLE "contact_blocks" (
     "type" "ContactBlockType" NOT NULL,
     "value" TEXT NOT NULL,
     "reason" TEXT,
+    "contactId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "contact_blocks_pkey" PRIMARY KEY ("id")
@@ -330,6 +418,12 @@ CREATE INDEX "refresh_tokens_userId_idx" ON "refresh_tokens"("userId");
 
 -- CreateIndex
 CREATE INDEX "refresh_tokens_token_idx" ON "refresh_tokens"("token");
+
+-- CreateIndex
+CREATE INDEX "social_accounts_userId_idx" ON "social_accounts"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "social_accounts_provider_providerAccountId_key" ON "social_accounts"("provider", "providerAccountId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "addresses_id_key" ON "addresses"("id");
@@ -404,6 +498,18 @@ CREATE UNIQUE INDEX "wishlist_items_wishlistId_productId_key" ON "wishlist_items
 CREATE UNIQUE INDEX "orders_id_key" ON "orders"("id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "contacts_email_key" ON "contacts"("email");
+
+-- CreateIndex
+CREATE INDEX "contacts_userId_idx" ON "contacts"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "payments_orderId_key" ON "payments"("orderId");
+
+-- CreateIndex
+CREATE INDEX "payments_reference_idx" ON "payments"("reference");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "banners_id_key" ON "banners"("id");
 
 -- CreateIndex
@@ -416,6 +522,15 @@ CREATE UNIQUE INDEX "settings_metaKey_key" ON "settings"("metaKey");
 CREATE INDEX "settings_metaGroup_idx" ON "settings"("metaGroup");
 
 -- CreateIndex
+CREATE INDEX "user_settings_userId_idx" ON "user_settings"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_settings_userId_metaKey_key" ON "user_settings"("userId", "metaKey");
+
+-- CreateIndex
+CREATE INDEX "bcv_rates_createdAt_idx" ON "bcv_rates"("createdAt");
+
+-- CreateIndex
 CREATE INDEX "contact_messages_status_idx" ON "contact_messages"("status");
 
 -- CreateIndex
@@ -425,10 +540,16 @@ CREATE INDEX "contact_messages_createdAt_idx" ON "contact_messages"("createdAt")
 CREATE INDEX "contact_blocks_type_idx" ON "contact_blocks"("type");
 
 -- CreateIndex
+CREATE INDEX "contact_blocks_contactId_idx" ON "contact_blocks"("contactId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "contact_blocks_type_value_key" ON "contact_blocks"("type", "value");
 
 -- AddForeignKey
 ALTER TABLE "refresh_tokens" ADD CONSTRAINT "refresh_tokens_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "addresses" ADD CONSTRAINT "addresses_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -491,7 +612,28 @@ ALTER TABLE "orders" ADD CONSTRAINT "orders_userId_fkey" FOREIGN KEY ("userId") 
 ALTER TABLE "orders" ADD CONSTRAINT "orders_couponId_fkey" FOREIGN KEY ("couponId") REFERENCES "coupons"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "orders" ADD CONSTRAINT "orders_shippingAddressId_fkey" FOREIGN KEY ("shippingAddressId") REFERENCES "addresses"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "orders" ADD CONSTRAINT "orders_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "contacts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "orders"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_productId_fkey" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "contacts" ADD CONSTRAINT "contacts_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payments" ADD CONSTRAINT "payments_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "orders"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_settings" ADD CONSTRAINT "user_settings_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "contact_messages" ADD CONSTRAINT "contact_messages_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "contacts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "contact_blocks" ADD CONSTRAINT "contact_blocks_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "contacts"("id") ON DELETE SET NULL ON UPDATE CASCADE;

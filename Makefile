@@ -78,6 +78,11 @@ generate:
 seed:
 	docker exec -it terroir_backend npm run seed
 
+# Crea/restablece el admin (eriadmin@gmail.com / Admin123? por defecto) usando
+# Prisma + bcrypt de la app. Override: make create-admin EMAIL=x@y.com PASS=Clave1?
+create-admin:
+	docker exec -it terroir_backend npm run seed:admin -- $(EMAIL) $(PASS)
+
 # ─── Shells ────────────────────────────────────────────────────────────────────
 
 shell:
