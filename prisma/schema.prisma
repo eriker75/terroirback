@@ -85,7 +85,12 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // Soft delete: en vez de borrar la fila, el admin la marca con la fecha de
+  // borrado. Así no se pierde la información del cliente (pedidos, historial…).
+  // Las consultas de listado/stats/login filtran las filas con deletedAt != NULL.
+  deletedAt DateTime?
 
+  @@index([deletedAt])
   @@map("users")
 }
 

@@ -24,6 +24,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user) throw new UnauthorizedException('Token not valid');
 
+    // Soft delete: un cliente borrado no puede seguir autenticado aunque su
+    // access token siga vigente.
+    if (user.deletedAt) throw new UnauthorizedException('Token not valid');
+
     if (user.status !== 'active')
       throw new UnauthorizedException('User is inactive, talk with an admin');
 

@@ -85,9 +85,10 @@ export class UsersService {
         avatar: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
       },
     });
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
     // Mismo criterio que login()/refresh(): no emitir sesión a cuentas inactivas.
@@ -96,7 +97,8 @@ export class UsersService {
     }
     const loyaltyPoints = await this.getLoyaltyPoints(userId);
     const { accessToken, refreshToken } = await this.issueTokenPair(userId);
-    return { ...user, loyaltyPoints, accessToken, refreshToken };
+    const { deletedAt: _deletedAt, ...safeUser } = user;
+    return { ...safeUser, loyaltyPoints, accessToken, refreshToken };
   }
 
   // ── tokens ────────────────────────────────────────────────────────────────────
@@ -215,11 +217,12 @@ export class UsersService {
         role: true,
         status: true,
         password: true,
+        deletedAt: true,
       },
     });
 
-    if (!user) {
-      console.log('[login] usuario no encontrado para:', email);
+    if (!user || user.deletedAt) {
+      console.log('[login] usuario no encontrado/borrado para:', email);
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
@@ -242,7 +245,7 @@ export class UsersService {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, deletedAt: _deletedAt, ...userWithoutPassword } = user;
     const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
     const loyaltyPoints = await this.getLoyaltyPoints(user.id);
     console.log('[login] OK → id:', user.id);
@@ -263,12 +266,17 @@ export class UsersService {
             lastName: true,
             role: true,
             status: true,
+            deletedAt: true,
           },
         },
       },
     });
 
     if (!stored || stored.isRevoked || stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token inválido o expirado');
+    }
+
+    if (stored.user.deletedAt) {
       throw new UnauthorizedException('Refresh token inválido o expirado');
     }
 
@@ -284,7 +292,8 @@ export class UsersService {
 
     const { accessToken, refreshToken } = await this.issueTokenPair(stored.user.id);
     const loyaltyPoints = await this.getLoyaltyPoints(stored.user.id);
-    return { ...stored.user, loyaltyPoints, accessToken, refreshToken };
+    const { deletedAt: _deletedAt, ...safeUser } = stored.user;
+    return { ...safeUser, loyaltyPoints, accessToken, refreshToken };
   }
 
   async logout(rawToken: string) {
@@ -298,7 +307,8 @@ export class UsersService {
   // ── CRUD ──────────────────────────────────────────────────────────────────────
 
   async findAll({ limit, offset, search, role, status }: UserQueryDto) {
-    const where: Prisma.UserWhereInput = {};
+    // Soft delete: nunca listamos clientes marcados como borrados.
+    const where: Prisma.UserWhereInput = { deletedAt: null };
 
     if (role) where.role = role;
     if (status) where.status = status;
@@ -325,8 +335,10 @@ export class UsersService {
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
+    // findFirst (no findUnique) para poder filtrar también por deletedAt: un
+    // cliente borrado (soft delete) se trata como inexistente.
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
       select: this.publicUserSelect,
     });
 
@@ -354,15 +366,35 @@ export class UsersService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.user.delete({ where: { id } });
+    await this.findOne(id); // 404 si no existe o ya estaba borrado
+
+    // Soft delete: NO borramos la fila. Marcamos deletedAt para conservar toda la
+    // información del cliente (datos, pedidos, historial) y a la vez sacarlo de los
+    // listados/stats. Revocamos sus sesiones para que no pueda seguir autenticado.
+    const [deleted] = await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+        select: this.publicUserSelect,
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: id, isRevoked: false },
+        data: { isRevoked: true },
+      }),
+    ]);
+    return deleted;
   }
 
   async getCustomerStats() {
+    // deletedAt: null en cada conteo para no incluir clientes borrados (soft delete).
     const [total, active, inactive] = await this.prisma.$transaction([
-      this.prisma.user.count({ where: { role: 'customer' } }),
-      this.prisma.user.count({ where: { role: 'customer', status: 'active' } }),
-      this.prisma.user.count({ where: { role: 'customer', status: 'inactive' } }),
+      this.prisma.user.count({ where: { role: 'customer', deletedAt: null } }),
+      this.prisma.user.count({
+        where: { role: 'customer', status: 'active', deletedAt: null },
+      }),
+      this.prisma.user.count({
+        where: { role: 'customer', status: 'inactive', deletedAt: null },
+      }),
     ]);
     return { total, active, inactive };
   }
