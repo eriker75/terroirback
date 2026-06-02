@@ -22,10 +22,14 @@ export class LoyaltyService {
     return Number.isFinite(n) ? n : 0;
   }
 
-  // Acredita al saldo del usuario los puntos congelados del pedido. Es:
+  // Acredita al saldo del usuario los puntos congelados del pedido. Se invoca
+  // cuando el PAGO del pedido queda COMPLETED (webhook R4, confirmación manual del
+  // admin, o al marcar la orden COMPLETED, que completa su pago). Es:
   //   · IDEMPOTENTE  → el flip de `pointsAwarded` (updateMany con guarda) sólo
   //                    afecta una vez aunque R4 reintente o el admin re-confirme.
-  //   · CONDICIONAL  → sólo acredita si el pedido está PAID.
+  //                    El gatillo es el pago COMPLETED (lo garantizan los llamadores).
+  //   · NO sobre CANCELADOS → un abono R4 tardío o una confirmación manual sobre
+  //                    una orden ya CANCELLED NO acredita puntos (guard status).
   //   · ATÓMICO      → el UPSERT incrementa con CAST(...AS INTEGER) en SQL, así
   //                    dos pedidos del mismo usuario confirmados a la vez no se
   //                    pisan el saldo aunque `metaValue` sea texto.
@@ -35,10 +39,10 @@ export class LoyaltyService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const flip = await tx.order.updateMany({
-          where: { id: orderId, status: 'PAID', pointsAwarded: false },
+          where: { id: orderId, pointsAwarded: false, status: { not: 'CANCELLED' } },
           data: { pointsAwarded: true },
         });
-        if (flip.count !== 1) return; // ya acreditado, o el pedido no está PAID
+        if (flip.count !== 1) return; // ya acreditado, o el pedido está CANCELLED
 
         const order = await tx.order.findUnique({
           where: { id: orderId },
@@ -62,6 +66,44 @@ export class LoyaltyService {
       // para revisión; el pedido queda con pointsAwarded=false y puede reintentarse.
       this.logger.error(
         `No se pudieron acreditar puntos del pedido ${orderId}: ${(error as Error)?.message ?? error}`,
+      );
+    }
+  }
+
+  // Revoca (resta) del saldo del cliente los puntos que otorgó un pedido. Se usa
+  // al CANCELAR una orden ya pagada cuando el admin activó el switch de "revocar
+  // puntos de órdenes canceladas" (p.ej. pago con billetes falsos). Es:
+  //   · IDEMPOTENTE → sólo descuenta si los puntos estaban acreditados
+  //                   (pointsAwarded=true), y baja el flag a false en el mismo paso.
+  //   · ATÓMICO/SEGURO → resta con GREATEST(0, ...) para no dejar saldo negativo.
+  async revokeForOrder(orderId: string): Promise<void> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const flip = await tx.order.updateMany({
+          where: { id: orderId, pointsAwarded: true },
+          data: { pointsAwarded: false },
+        });
+        if (flip.count !== 1) return; // no había puntos acreditados que revocar
+
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: { userId: true, pointsEarned: true },
+        });
+        if (!order || order.pointsEarned <= 0) return;
+
+        await tx.$executeRaw`
+          UPDATE user_settings
+          SET "metaValue" = GREATEST(0, CAST("metaValue" AS INTEGER) - ${order.pointsEarned})::text,
+              "updatedAt" = now()
+          WHERE "userId" = ${order.userId} AND "metaKey" = ${LOYALTY_POINTS_KEY}
+        `;
+        this.logger.log(
+          `Revocados ${order.pointsEarned} pts del usuario ${order.userId} (pedido ${orderId} cancelado)`,
+        );
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudieron revocar puntos del pedido ${orderId}: ${(error as Error)?.message ?? error}`,
       );
     }
   }

@@ -53,18 +53,17 @@ export class PaymentsService {
     return { data, total, limit, offset };
   }
 
-  // Confirmación manual (admin) / punto de entrada para un futuro webhook.
-  // Actualiza el estado del pago. Si pasa a COMPLETED, marca confirmedAt y
-  // promueve el pedido asociado a PAID.
+  // Confirmación manual (admin) / punto de entrada del webhook. Actualiza el
+  // estado del PAGO. Si pasa a COMPLETED, marca confirmedAt y, si el pedido sigue
+  // PENDING, lo avanza a PREPARING (pago cobrado → arranca la preparación). El
+  // "pagado" vive en payments.status; los estados de la orden son de fulfillment.
   async updateStatus(id: string, status: string) {
     const payment = await this.prisma.payment.findUnique({ where: { id } });
     if (!payment) {
       throw new NotFoundException(`Pago ${id} no encontrado`);
     }
 
-    // Actualizamos el pago y (si pasa a COMPLETED) promovemos la orden a PAID
-    // de forma atómica: o se aplican ambos cambios o ninguno (si la orden no
-    // existe / falla la 2da escritura, se revierte el cambio del pago).
+    // Atómico: o se aplican el pago + el avance de la orden, o ninguno.
     const updated = await this.prisma.$transaction(async (tx) => {
       const upd = await tx.payment.update({
         where: { id },
@@ -75,18 +74,18 @@ export class PaymentsService {
       });
 
       if (status === 'COMPLETED') {
-        // payment.orderId referencia Order.id (uuid).
-        await tx.order.update({
-          where: { id: payment.orderId },
-          data: { status: 'PAID' },
+        // Avanza la orden sólo si sigue PENDING (no la mueve hacia atrás si ya
+        // está SENDING/COMPLETED). payment.orderId referencia Order.id (uuid).
+        await tx.order.updateMany({
+          where: { id: payment.orderId, status: 'PENDING' },
+          data: { status: 'PREPARING' },
         });
       }
 
       return upd;
     });
 
-    // Tras confirmar el pago (orden ya PAID), acredita los puntos al cliente.
-    // Idempotente y best-effort: no revierte la confirmación si algo falla.
+    // Pago COMPLETED → acredita los puntos al cliente (idempotente, best-effort).
     if (status === 'COMPLETED') {
       await this.loyalty.awardForOrder(payment.orderId);
     }

@@ -108,7 +108,8 @@ export class R4WebhooksService {
       }
 
       // Confirmación atómica e idempotente: el updateMany sólo afecta filas que
-      // siguen PENDING/PROCESSING; si count===1 promovemos la orden a PAID.
+      // siguen PENDING/PROCESSING (estado del PAGO); si count===1, avanzamos la
+      // orden de PENDING a PREPARING (pago confirmado → arranca preparación).
       const confirmed = await this.prisma.$transaction(async (tx) => {
         const upd = await tx.payment.updateMany({
           where: { id: payment.id, status: { in: ['PENDING', 'PROCESSING'] } },
@@ -122,15 +123,19 @@ export class R4WebhooksService {
           },
         });
         if (upd.count === 1) {
-          await tx.order.update({ where: { id: payment.orderId }, data: { status: 'PAID' } });
+          // Sólo avanza si la orden sigue PENDING (no la mueve hacia atrás).
+          await tx.order.updateMany({
+            where: { id: payment.orderId, status: 'PENDING' },
+            data: { status: 'PREPARING' },
+          });
           return true;
         }
         return false;
       });
 
       if (confirmed) {
-        this.logger.log(`Abono R4 confirmado (Referencia=${body.Referencia}) → orden PAID`);
-        // Acredita los puntos al cliente (idempotente, best-effort).
+        this.logger.log(`Abono R4 confirmado (Referencia=${body.Referencia}) → orden PREPARING`);
+        // Pago COMPLETED → acredita los puntos al cliente (idempotente, best-effort).
         await this.loyalty.awardForOrder(payment.orderId);
       }
       return { abono: true };

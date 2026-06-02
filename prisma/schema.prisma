@@ -12,13 +12,6 @@ datasource db {
 // -----------------------------------------------------------------------------
 // ENUMS
 // -----------------------------------------------------------------------------
-enum OrderStatus {
-  PENDING
-  PAID
-  SHIPPED
-  CANCELLED
-}
-
 enum DiscountType {
   PERCENTAGE
   FIXED_AMOUNT
@@ -406,14 +399,22 @@ model Order {
 
   discount Decimal     @default(0)
   total    Decimal
-  status   OrderStatus @default(PENDING)
+  // Estado del pedido como VARCHAR(50) libre (no un enum físico de Postgres),
+  // para poder añadir estados futuros sin migraciones de enum. El conjunto válido
+  // se valida en TypeScript (enum OrderStatus en src/orders/order-status.enum.ts).
+  status   String      @default("PENDING") @db.VarChar(50)
 
   // Puntos de fidelidad que otorga este pedido. `pointsEarned` se calcula y
   // congela al hacer checkout (snapshot, inmune a cambios posteriores del
-  // catálogo). `pointsAwarded` evita acreditarlos dos veces: sólo se suman al
-  // saldo del usuario cuando el pedido pasa a PAID (idempotente). Ver LoyaltyService.
+  // catálogo). `pointsAwarded` evita acreditarlos dos veces: se suman al saldo
+  // del usuario cuando el pago queda COMPLETED (idempotente). Ver LoyaltyService.
   pointsEarned  Int     @default(0)
   pointsAwarded Boolean @default(false)
+
+  // Momento en que el pedido pasó a COMPLETED. Se usa para expirar el seguimiento
+  // público (ver OrdersService.findOneForTracking): pasados N días, sólo el dueño
+  // autenticado o un admin pueden verlo.
+  completedAt DateTime?
 
   items     OrderItem[]
   createdAt DateTime    @default(now())
@@ -514,7 +515,7 @@ model Setting {
 // Almacén clave-valor por usuario (espejo de `settings` pero con scope de
 // usuario). Hoy guarda el saldo de puntos de fidelidad bajo la clave
 // `loyalty_points` (metaValue = entero serializado como string). El saldo se
-// acredita cuando un pedido pasa a PAID — ver LoyaltyService.awardForOrder, que
+// acredita cuando el pago de un pedido queda COMPLETED — ver LoyaltyService.awardForOrder, que
 // hace un UPSERT atómico con CAST a INTEGER para que increments concurrentes no
 // se pisen aunque metaValue sea texto.
 model UserSetting {

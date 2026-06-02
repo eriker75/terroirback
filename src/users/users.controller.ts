@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -7,6 +17,8 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Auth } from './decorators/auth.decorators';
+import { GetUser } from './decorators/get-user.decorator';
+import { User } from './entities/user.entity';
 import { ValidRoles } from './interfaces';
 import { UserQueryDto } from './dto/user-query.dto';
 
@@ -91,18 +103,37 @@ export class UsersController {
   @Get(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener usuario por ID' })
+  @ApiOperation({ summary: 'Obtener usuario por ID (propio, o cualquiera si admin)' })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  findOne(@Param('id') id: string) {
+  @ApiResponse({ status: 403, description: 'No puedes ver el perfil de otro usuario.' })
+  findOne(@Param('id') id: string, @GetUser() authUser: User) {
+    // Evita IDOR: un customer sólo puede ver su propio perfil; el admin, cualquiera.
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      throw new ForbiddenException('No tienes acceso al perfil de otro usuario');
+    }
     return this.usersService.findOne(id);
   }
 
   @Patch(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Actualizar usuario' })
+  @ApiOperation({ summary: 'Actualizar usuario (propio, o cualquiera si admin)' })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+  @ApiResponse({ status: 403, description: 'No puedes modificar el perfil de otro usuario.' })
+  update(
+    @Param('id') id: string,
+    @Body() updateUserDto: UpdateUserDto,
+    @GetUser() authUser: User,
+  ) {
+    // Evita IDOR: sólo el dueño o un admin pueden modificar.
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      throw new ForbiddenException('No tienes acceso al perfil de otro usuario');
+    }
+    // Evita escalada de privilegios: un no-admin NO puede cambiar role/status.
+    if (authUser.role !== 'admin') {
+      delete updateUserDto.role;
+      delete updateUserDto.status;
+    }
     return this.usersService.update(id, updateUserDto);
   }
 

@@ -45,6 +45,14 @@ export class OrdersController {
     return this.ordersService.getAnalytics(dto);
   }
 
+  @Get('locations')
+  @Auth(ValidRoles.admin)
+  @ApiOperation({ summary: '[Admin] Coordenadas de las compras (para el mapa de direcciones)' })
+  @ApiResponse({ status: 200, description: 'Array de {orderId, latitude, longitude, ...}' })
+  getOrderLocations() {
+    return this.ordersService.getOrderLocations();
+  }
+
   @Get()
   @Auth(ValidRoles.admin)
   @ApiOperation({ summary: '[Admin] Listar pedidos con filtros y paginación' })

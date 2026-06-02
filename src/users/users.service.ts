@@ -29,7 +29,24 @@ export class UsersService {
     private readonly jwtService: JwtService,
   ) {}
 
-  private readonly userInclude = {
+  // Selección pública del usuario: NUNCA incluye `password`. Se usa en todas las
+  // respuestas (register/findAll/findOne/update) para no filtrar el hash bcrypt.
+  private readonly publicUserSelect = {
+    id: true,
+    email: true,
+    firstName: true,
+    lastName: true,
+    avatar: true,
+    phone: true,
+    address: true,
+    city: true,
+    state: true,
+    zip: true,
+    country: true,
+    role: true,
+    status: true,
+    createdAt: true,
+    updatedAt: true,
     addresses: true,
   } as const;
 
@@ -44,6 +61,42 @@ export class UsersService {
     if (!row) return 0;
     const n = parseInt(row.metaValue, 10);
     return Number.isFinite(n) ? n : 0;
+  }
+
+  // Emite una sesión (tokens + datos limpios del usuario, SIN password) para un
+  // userId dado. La usa el checkout para autenticar automáticamente a un comprador
+  // invitado (cuenta sin contraseña). Mismo shape plano que login()/register().
+  async buildSessionForUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        phone: true,
+        address: true,
+        city: true,
+        state: true,
+        zip: true,
+        country: true,
+        avatar: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+    // Mismo criterio que login()/refresh(): no emitir sesión a cuentas inactivas.
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
+    }
+    const loyaltyPoints = await this.getLoyaltyPoints(userId);
+    const { accessToken, refreshToken } = await this.issueTokenPair(userId);
+    return { ...user, loyaltyPoints, accessToken, refreshToken };
   }
 
   // ── tokens ────────────────────────────────────────────────────────────────────
@@ -81,7 +134,7 @@ export class UsersService {
     try {
       const user = await this.prisma.user.create({
         data: { ...rest, password: hashedPassword },
-        include: this.userInclude,
+        select: this.publicUserSelect,
       });
 
       // Best-effort: registra al usuario también como Contact (fuente: registro web).
@@ -261,7 +314,7 @@ export class UsersService {
     const [data, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,
-        include: this.userInclude,
+        select: this.publicUserSelect,
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
@@ -274,7 +327,7 @@ export class UsersService {
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: this.userInclude,
+      select: this.publicUserSelect,
     });
 
     if (!user) {
@@ -296,7 +349,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data,
-      include: this.userInclude,
+      select: this.publicUserSelect,
     });
   }
 

@@ -23,6 +23,6 @@ import { PrismaModule } from '../database/database.module';
   ],
   controllers: [UsersController],
   providers: [UsersService, JwtStrategy],
-  exports: [JwtStrategy, PassportModule, JwtModule],
+  exports: [UsersService, JwtStrategy, PassportModule, JwtModule],
 })
 export class UsersModule {}

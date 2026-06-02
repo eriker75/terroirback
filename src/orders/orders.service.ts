@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -7,7 +12,9 @@ import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-q
 import { PrismaService } from '../database/database.service';
 import { BcvService } from '../bcv/bcv.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
-import { Prisma, OrderStatus } from '@prisma/client';
+import { UsersService } from '../users/users.service';
+import { Prisma } from '@prisma/client';
+import { OrderStatus } from './order-status.enum';
 
 // Puntos que otorga una unidad de producto. Si el producto define `pointsEarned`
 // se usa ese valor; si no, se aplica la tasa por defecto (1 USD → 10 pts), que
@@ -18,16 +25,26 @@ function pointsForUnit(price: Prisma.Decimal, pointsEarned: number | null): numb
   return Math.floor(Number(price) * DEFAULT_POINTS_PER_USD);
 }
 
+// Ventana (días) durante la cual el seguimiento público de un pedido COMPLETED
+// sigue siendo visible para cualquiera con el enlace. Pasado ese tiempo, sólo el
+// dueño autenticado o un admin pueden verlo.
+const TRACKING_PUBLIC_WINDOW_DAYS = 7;
+
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bcvService: BcvService,
     private readonly loyalty: LoyaltyService,
+    private readonly usersService: UsersService,
   ) {}
 
   private readonly orderInclude = {
-    user: true,
+    // NO exponer el hash de password: seleccionamos sólo los campos públicos del
+    // usuario (antes `user: true` filtraba la contraseña en cada respuesta).
+    user: {
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+    },
     coupon: true,
     shippingAddress: true,
     contact: true,
@@ -80,7 +97,12 @@ export class OrdersService {
       return d ? d.padStart(4, '0') : null;
     };
 
-    return this.prisma.$transaction(async (tx) => {
+    // Se resuelven dentro de la transacción y se leen después para (si aplica)
+    // emitir una sesión de auto-login al comprador invitado.
+    let userId = '';
+    let shouldIssueSession = false;
+
+    const order = await this.prisma.$transaction(async (tx) => {
       // 1) Cargar los productos referenciados y validar que todos existan.
       const productIds = items.map((item) => item.productId);
       const products = await tx.product.findMany({
@@ -115,7 +137,9 @@ export class OrdersService {
       //        · no existe → se crea como invitado (sin contraseña) rol customer.
       //        · existe pero invitado (sin contraseña) → se refrescan sus datos.
       //        · existe con contraseña → sólo se le asocia el pedido (no se toca).
-      let userId: string;
+      // `shouldIssueSession` queda true sólo para invitados SIN contraseña, para
+      // luego autenticarlos automáticamente. Nunca para una cuenta con contraseña
+      // (evita robo de cuenta) ni para alguien ya autenticado.
       if (authUser?.id) {
         userId = authUser.id;
       } else {
@@ -141,6 +165,7 @@ export class OrdersService {
             select: { id: true },
           });
           userId = created.id;
+          shouldIssueSession = true; // invitado nuevo (cuenta sin contraseña)
         } else {
           userId = existing.id;
           if (!existing.password) {
@@ -157,7 +182,9 @@ export class OrdersService {
                 ...(dto.country !== undefined ? { country: dto.country } : {}),
               },
             });
+            shouldIssueSession = true; // invitado existente (cuenta sin contraseña)
           }
+          // con contraseña: cuenta real → sólo se asocia el pedido, sin sesión.
         }
       }
 
@@ -265,7 +292,7 @@ export class OrdersService {
       const total = subtotal.minus(discount);
 
       // 5c) Puntos de fidelidad que otorgará el pedido (snapshot). Se acreditan
-      //     al saldo del cliente sólo cuando el pedido pase a PAID (LoyaltyService).
+      //     al saldo del cliente cuando el pago quede COMPLETED (LoyaltyService).
       const pointsEarned = orderItems.reduce(
         (acc, item) =>
           acc +
@@ -326,6 +353,22 @@ export class OrdersService {
         include: this.orderInclude,
       });
     });
+
+    // Auto-login del comprador invitado (cuenta sin contraseña): emitimos una
+    // sesión real (token + datos del usuario) para que vea sus pedidos/wishlist en
+    // /account. NO se emite si ya venía autenticado ni si el email pertenece a una
+    // cuenta con contraseña (eso sería robo de cuenta).
+    if (shouldIssueSession) {
+      try {
+        const auth = await this.usersService.buildSessionForUser(userId);
+        return { ...order, auth };
+      } catch {
+        // Si falla emitir la sesión, el pedido YA se creó: devolvemos la orden sin
+        // `auth` (el front tolera su ausencia y simplemente no auto-loguea).
+        return order;
+      }
+    }
+    return order;
   }
 
   // Pedidos del cliente autenticado, del más reciente al más antiguo.
@@ -380,17 +423,66 @@ export class OrdersService {
   }
 
   async getOrderStats() {
-    const statuses = [OrderStatus.PENDING, OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED];
+    const statuses = [
+      OrderStatus.PENDING,
+      OrderStatus.PREPARING,
+      OrderStatus.SENDING,
+      OrderStatus.COMPLETED,
+      OrderStatus.CANCELLED,
+    ];
     const counts = await this.prisma.$transaction(
       statuses.map((s) => this.prisma.order.count({ where: { status: s } })),
     );
     return {
       PENDING: counts[0],
-      PAID: counts[1],
-      SHIPPED: counts[2],
-      CANCELLED: counts[3],
+      PREPARING: counts[1],
+      SENDING: counts[2],
+      COMPLETED: counts[3],
+      CANCELLED: counts[4],
       total: counts.reduce((a, b) => a + b, 0),
     };
+  }
+
+  // Coordenadas de las compras (órdenes cuya dirección de envío está
+  // geolocalizada) para pintar el mapa del admin. Devuelve sólo lo necesario.
+  async getOrderLocations() {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        shippingAddress: { latitude: { not: null }, longitude: { not: null } },
+      },
+      select: {
+        id: true,
+        total: true,
+        status: true,
+        createdAt: true,
+        shippingAddress: {
+          select: {
+            latitude: true,
+            longitude: true,
+            city: true,
+            state: true,
+            recipientName: true,
+            line1: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return orders
+      .filter((o) => o.shippingAddress?.latitude != null && o.shippingAddress?.longitude != null)
+      .map((o) => ({
+        orderId: o.id,
+        total: o.total,
+        status: o.status,
+        createdAt: o.createdAt,
+        latitude: o.shippingAddress!.latitude as number,
+        longitude: o.shippingAddress!.longitude as number,
+        city: o.shippingAddress!.city,
+        state: o.shippingAddress!.state,
+        recipientName: o.shippingAddress!.recipientName,
+        line1: o.shippingAddress!.line1,
+      }));
   }
 
   async findOne(id: string) {
@@ -407,15 +499,18 @@ export class OrdersService {
   }
 
   // Seguimiento público: devuelve sólo un subconjunto seguro (sin email,
-  // cédula, teléfono ni dirección) porque la ruta es pública.
-  async findOneForTracking(id: string) {
+  // cédula, teléfono ni dirección) porque la ruta es pública. `authUser` (opcional)
+  // permite que el dueño o un admin vean un pedido cuyo seguimiento público expiró.
+  async findOneForTracking(id: string, authUser?: { id: string; role?: string } | null) {
     const order = await this.prisma.order.findUnique({
       where: { id },
       select: {
         id: true,
+        userId: true,
         status: true,
         total: true,
         createdAt: true,
+        completedAt: true,
         items: {
           select: { id: true, quantity: true, price: true, product: { select: { name: true } } },
         },
@@ -423,7 +518,36 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException(`Pedido ${id} no encontrado`);
-    return order;
+
+    // Expiración del seguimiento PÚBLICO: pasados TRACKING_PUBLIC_WINDOW_DAYS días
+    // desde que el pedido se completó, sólo el dueño autenticado o un admin pueden
+    // verlo. Antes de completarse (o dentro de la ventana) sigue siendo público.
+    if (order.status === OrderStatus.COMPLETED && order.completedAt) {
+      const windowMs = TRACKING_PUBLIC_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+      const expired = order.completedAt.getTime() + windowMs < Date.now();
+      const isOwner = !!authUser && authUser.id === order.userId;
+      const isAdmin = !!authUser && authUser.role === 'admin';
+      if (expired && !isOwner && !isAdmin) {
+        throw new ForbiddenException(
+          'El seguimiento público de este pedido expiró. Inicia sesión para verlo.',
+        );
+      }
+    }
+
+    // No exponer userId/completedAt en la respuesta pública.
+    const { userId: _userId, completedAt: _completedAt, ...publicOrder } = order;
+    return publicOrder;
+  }
+
+  // Lee el switch de "ajustes avanzados" que decide si, al cancelar una orden
+  // que ya estaba pagada (p.ej. pago con billetes falsos), se invalida el pago y
+  // se le revocan los puntos al cliente. Por defecto false (no se pierden puntos).
+  private async isRevokePointsOnCancelEnabled(): Promise<boolean> {
+    const s = await this.prisma.setting.findUnique({
+      where: { metaKey: 'advanced_revoke_points_on_cancel' },
+      select: { metaValue: true },
+    });
+    return s?.metaValue === 'true';
   }
 
   async update(id: string, updateOrderDto: UpdateOrderDto) {
@@ -431,25 +555,54 @@ export class OrdersService {
 
     const { items, ...orderData } = updateOrderDto;
     const nextStatus = orderData.status as OrderStatus | undefined;
+    const isCancelling =
+      nextStatus === OrderStatus.CANCELLED && current.status !== OrderStatus.CANCELLED;
+    const isCompleting =
+      nextStatus === OrderStatus.COMPLETED && current.status !== OrderStatus.COMPLETED;
+    // Sólo consultamos el switch cuando realmente estamos cancelando.
+    const revokeOnCancel = isCancelling ? await this.isRevokePointsOnCancelEnabled() : false;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Reponer stock al CANCELAR (transición hacia CANCELLED desde cualquier
       // otro estado). Se exige que el estado previo NO fuera ya CANCELLED, por lo
       // que un re-PATCH a CANCELLED no repone dos veces. (Nota: reabrir un pedido
       // CANCELLED→PENDING no vuelve a descontar stock; evita ese toggle.)
-      if (nextStatus === OrderStatus.CANCELLED && current.status !== OrderStatus.CANCELLED) {
+      if (isCancelling) {
         for (const item of current.items) {
           await tx.product.update({
             where: { id: item.productId },
             data: { stock: { increment: item.quantity } },
           });
         }
+
+        // Si el switch está activo: el pago cobrado se marca INVÁLIDO (FAILED) —
+        // p.ej. pagó con billetes falsos. Sólo afecta pagos que estaban COMPLETED.
+        // (Los puntos se revocan tras el commit, abajo.)
+        if (revokeOnCancel) {
+          await tx.payment.updateMany({
+            where: { orderId: id, status: 'COMPLETED' },
+            data: { status: 'FAILED' },
+          });
+        }
+      }
+
+      // Al COMPLETAR: el/los pago(s) asociados pasan a COMPLETED automáticamente.
+      // Una orden entregada implica que se cobró (p.ej. efectivo contra entrega):
+      // no tiene sentido que el pago quede "no pagado". Sólo afecta pagos aún no
+      // COMPLETED. Esto es además lo que dispara la acreditación de puntos abajo.
+      if (isCompleting) {
+        await tx.payment.updateMany({
+          where: { orderId: id, status: { not: 'COMPLETED' } },
+          data: { status: 'COMPLETED', confirmedAt: new Date() },
+        });
       }
 
       return tx.order.update({
         where: { id },
         data: {
           ...orderData,
+          // Sella el momento de completado (para expirar el seguimiento público).
+          ...(isCompleting ? { completedAt: new Date() } : {}),
           items: items
             ? {
                 deleteMany: {},
@@ -465,9 +618,16 @@ export class OrdersService {
       });
     });
 
-    // Si el pedido pasó a PAID, acreditar los puntos (idempotente, best-effort).
-    if (nextStatus === OrderStatus.PAID) {
+    // Al COMPLETAR (su pago ya quedó COMPLETED arriba), acreditar los puntos al
+    // cliente (idempotente, best-effort). Sólo en la transición real a COMPLETED.
+    if (isCompleting) {
       await this.loyalty.awardForOrder(id);
+    }
+
+    // Al CANCELAR con el switch activo: revocar los puntos que ganó por la orden
+    // (idempotente: sólo descuenta si estaban acreditados).
+    if (isCancelling && revokeOnCancel) {
+      await this.loyalty.revokeForOrder(id);
     }
 
     return updated;

@@ -10,7 +10,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus } from '../order-status.enum';
 
 export class CreateOrderItemDto {
   @ApiProperty({ example: 'cldproduct123' })
