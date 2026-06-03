@@ -43,8 +43,11 @@ export class UsersService {
     state: true,
     zip: true,
     country: true,
+    latitude: true,
+    longitude: true,
     role: true,
     status: true,
+    accountType: true,
     createdAt: true,
     updatedAt: true,
     addresses: true,
@@ -306,12 +309,13 @@ export class UsersService {
 
   // ── CRUD ──────────────────────────────────────────────────────────────────────
 
-  async findAll({ limit, offset, search, role, status }: UserQueryDto) {
+  async findAll({ limit, offset, search, role, status, accountType }: UserQueryDto) {
     // Soft delete: nunca listamos clientes marcados como borrados.
     const where: Prisma.UserWhereInput = { deletedAt: null };
 
     if (role) where.role = role;
     if (status) where.status = status;
+    if (accountType) where.accountType = accountType;
 
     if (search) {
       where.OR = [

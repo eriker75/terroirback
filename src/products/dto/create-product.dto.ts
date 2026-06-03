@@ -4,6 +4,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -12,6 +13,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { PRODUCT_VISIBILITIES } from '../../common/account.constants';
 
 export class CreateProductAttributeDto {
   @ApiProperty({ example: 'Color' })
@@ -20,6 +22,18 @@ export class CreateProductAttributeDto {
   name: string;
 
   @ApiProperty({ example: 'Rojo' })
+  @IsString()
+  @MaxLength(255)
+  value: string;
+}
+
+export class CreateProductVariantDto {
+  @ApiProperty({ example: 'Tamaño' })
+  @IsString()
+  @MaxLength(100)
+  name: string;
+
+  @ApiProperty({ example: '250g' })
   @IsString()
   @MaxLength(255)
   value: string;
@@ -51,6 +65,36 @@ export class CreateProductDto {
   @IsNumber()
   @IsPositive()
   price: number;
+
+  @ApiPropertyOptional({
+    example: 39.99,
+    description: 'Precio de oferta. Si < price, el cliente paga este y la card tacha el precio normal. null = sin oferta.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  offerPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: 32.0,
+    description: 'Precio mayorista al por mayor (B2B). Diferido; aún no se usa en el form.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  wholesalePrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: 'ALL',
+    enum: PRODUCT_VISIBILITIES,
+    description: 'Quién ve/compra el producto: ALL (todos), RETAIL_ONLY (solo B2C), WHOLESALE_ONLY (solo B2B).',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(PRODUCT_VISIBILITIES as unknown as string[])
+  visibility?: string;
 
   @ApiPropertyOptional({ example: 'https://cdn.ejemplo.com/vino.jpg' })
   @IsOptional()
@@ -86,6 +130,13 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductAttributeDto)
   attributes?: CreateProductAttributeDto[];
+
+  @ApiPropertyOptional({ type: [CreateProductVariantDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProductVariantDto)
+  variants?: CreateProductVariantDto[];
 
   @ApiPropertyOptional({ type: [ProductRelationDto] })
   @IsOptional()

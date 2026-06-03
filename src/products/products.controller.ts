@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -6,7 +6,12 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { FilterProductsDto } from './dto/filter-products.dto';
 import { Auth } from '../users/decorators/auth.decorators';
+import { OptionalJwtAuthGuard } from '../users/guards/optional-jwt.guard';
+import { OptionalUser } from '../users/decorators/optional-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+
+// Datos mínimos del visor para resolver la visibilidad/precio del catálogo.
+export type ProductViewer = { role?: string; accountType?: string } | null;
 
 @ApiTags('products')
 @Controller('products')
@@ -25,23 +30,29 @@ export class ProductsController {
     return this.productsService.create(createProductDto);
   }
 
-  // Público: catálogo de productos con filtros (búsqueda, categoría, precio,
-  // puntos, tueste, origen, etiqueta, disponibilidad) y ordenamiento.
+  // Público (auth opcional): catálogo de productos con filtros (búsqueda, categoría,
+  // precio, puntos, tueste, origen, etiqueta, disponibilidad) y ordenamiento. El
+  // usuario autenticado modula la VISIBILIDAD: un mayorista (B2B) ve también los
+  // productos WHOLESALE_ONLY; un minorista/invitado solo ALL+RETAIL_ONLY; el admin
+  // ve todo (el panel usa este mismo endpoint).
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Obtener productos con filtros y paginación' })
   @ApiResponse({ status: 200, description: 'Lista de productos.' })
-  findAll(@Query() filterDto: FilterProductsDto) {
-    return this.productsService.findAll(filterDto);
+  findAll(@Query() filterDto: FilterProductsDto, @OptionalUser() viewer: ProductViewer) {
+    return this.productsService.findAll(filterDto, viewer);
   }
 
-  // Público: detalle de producto
+  // Público (auth opcional): detalle de producto. Devuelve 404 si el producto no es
+  // visible para el visor (evita fuga de productos exclusivos por URL directa).
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Obtener un producto por ID' })
   @ApiParam({ name: 'id', description: 'ID del producto (cuid)' })
   @ApiResponse({ status: 200, description: 'Producto encontrado.' })
   @ApiResponse({ status: 404, description: 'Producto no encontrado.' })
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(id);
+  findOne(@Param('id') id: string, @OptionalUser() viewer: ProductViewer) {
+    return this.productsService.findOne(id, viewer);
   }
 
   // Admin: ajustar stock de forma relativa y atómica (sumar/restar)

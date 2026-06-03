@@ -5,6 +5,11 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { AdjustStockDto, StockOperation } from './dto/adjust-stock.dto';
 import { FilterProductsDto, ProductSort } from './dto/filter-products.dto';
 import { PrismaService } from '../database/database.service';
+import { canAccessVisibility } from '../common/account.constants';
+
+// Quién consulta el catálogo. null = invitado. El admin (role) ve todo; un B2B
+// (accountType) ve además los WHOLESALE_ONLY. Lo pasa el controller desde el token.
+export type ProductViewer = { role?: string; accountType?: string } | null;
 
 // Nombres de atributo que se consideran "tueste"/"origen". El catálogo guarda
 // estas características como ProductAttribute libres (name/value), así que el
@@ -19,6 +24,7 @@ export class ProductsService {
   private readonly productInclude = {
     category: true,
     attributes: true,
+    variants: true,
     productTags: {
       include: { tag: true },
     },
@@ -37,10 +43,8 @@ export class ProductsService {
   } satisfies Prisma.ProductInclude;
 
   create(createProductDto: CreateProductDto) {
-    const { tagIds, attributes, categoryId, relatedProducts, ...productData } =
+    const { tagIds, attributes, variants, categoryId, relatedProducts, ...productData } =
       createProductDto;
-
-    console.log('[create product] categoryId recibido:', JSON.stringify(categoryId), '| tipo:', typeof categoryId);
 
     return this.prisma.product.create({
       data: {
@@ -53,6 +57,9 @@ export class ProductsService {
         attributes: attributes?.length
           ? { create: attributes }
           : undefined,
+        variants: variants?.length
+          ? { create: variants }
+          : undefined,
         relatedProducts: relatedProducts?.length
           ? { create: relatedProducts.map(({ relatedId, relationType }) => ({ relatedId, relationType })) }
           : undefined,
@@ -61,9 +68,9 @@ export class ProductsService {
     });
   }
 
-  async findAll(filters: FilterProductsDto) {
+  async findAll(filters: FilterProductsDto, viewer?: ProductViewer) {
     const { limit, offset } = filters;
-    const where = this.buildWhere(filters);
+    const where = this.buildWhere(filters, viewer);
     const orderBy = this.buildOrderBy(filters.sort);
 
     const [data, total] = await this.prisma.$transaction([
@@ -82,8 +89,13 @@ export class ProductsService {
   // Traduce los filtros del catálogo a un WHERE de Prisma. Cada criterio se
   // acumula en un AND para que se combinen sin pisarse entre sí (p. ej. tueste
   // y origen, que ambos consultan la relación `attributes`).
-  private buildWhere(filters: FilterProductsDto): Prisma.ProductWhereInput {
+  private buildWhere(filters: FilterProductsDto, viewer?: ProductViewer): Prisma.ProductWhereInput {
     const AND: Prisma.ProductWhereInput[] = [];
+
+    // Visibilidad por segmento (no aplica al admin, que ve todo). Se omite cuando
+    // viewer es undefined (llamadas internas de confianza).
+    const visibility = this.visibilityWhere(viewer);
+    if (visibility) AND.push(visibility);
 
     if (filters.q) {
       AND.push({
@@ -168,13 +180,36 @@ export class ProductsService {
     }
   }
 
-  async findOne(id: string) {
+  // Predicado de visibilidad para el catálogo según el visor.
+  //   · undefined          → llamada interna de confianza (sin filtro).
+  //   · role === 'admin'   → ve todo (sin filtro).
+  //   · accountType B2B    → ve todo (los productos B2C son públicos) → sin filtro.
+  //   · resto (B2C/invitado) → todo MENOS los WHOLESALE_ONLY.
+  private visibilityWhere(viewer?: ProductViewer): Prisma.ProductWhereInput | null {
+    if (viewer === undefined) return null;
+    if (viewer?.role === 'admin') return null;
+    if (viewer?.accountType === 'B2B') return null;
+    return { visibility: { not: 'WHOLESALE_ONLY' } };
+  }
+
+  async findOne(id: string, viewer?: ProductViewer) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: this.productInclude,
     });
 
     if (!product) {
+      throw new NotFoundException(`Product with id ${id} not found`);
+    }
+
+    // Un producto no visible para el visor se trata como inexistente (404), para
+    // no filtrar productos exclusivos por id directo. El admin (viewer.role) y las
+    // llamadas internas (viewer undefined) lo omiten.
+    if (
+      viewer !== undefined &&
+      viewer?.role !== 'admin' &&
+      !canAccessVisibility(viewer?.accountType, product.visibility)
+    ) {
       throw new NotFoundException(`Product with id ${id} not found`);
     }
 
@@ -187,7 +222,7 @@ export class ProductsService {
     // `stock` se ignora aquí a propósito: en productos existentes solo se modifica
     // mediante adjustStock() (operación atómica add/subtract) para evitar pisar
     // cambios concurrentes. Ver PATCH /products/:id/stock.
-    const { tagIds, attributes, categoryId, relatedProducts, stock: _stock, ...productData } =
+    const { tagIds, attributes, variants, categoryId, relatedProducts, stock: _stock, ...productData } =
       updateProductDto;
 
     return this.prisma.product.update({
@@ -207,6 +242,9 @@ export class ProductsService {
           : undefined,
         attributes: attributes
           ? { deleteMany: {}, create: attributes }
+          : undefined,
+        variants: variants
+          ? { deleteMany: {}, create: variants }
           : undefined,
         relatedProducts: relatedProducts
           ? {

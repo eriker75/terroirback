@@ -15,6 +15,7 @@ import { LoyaltyService } from '../loyalty/loyalty.service';
 import { UsersService } from '../users/users.service';
 import { Prisma } from '@prisma/client';
 import { OrderStatus } from './order-status.enum';
+import { canAccessVisibility } from '../common/account.constants';
 
 // Puntos que otorga una unidad de producto. Si el producto define `pointsEarned`
 // se usa ese valor; si no, se aplica la tasa por defecto (1 USD → 10 pts), que
@@ -23,6 +24,22 @@ const DEFAULT_POINTS_PER_USD = 10;
 function pointsForUnit(price: Prisma.Decimal, pointsEarned: number | null): number {
   if (pointsEarned != null) return Math.max(0, Math.floor(pointsEarned));
   return Math.floor(Number(price) * DEFAULT_POINTS_PER_USD);
+}
+
+// Precio unitario que se cobra. Hoy el modelo es simple: precio de oferta
+// (`offerPrice`) si está definido y es menor que `price`; si no, `price`. Aplica a
+// todos. El precio mayorista por lotes (B2B) está DIFERIDO: si en el futuro un
+// producto define `wholesalePrice`, un comprador B2B lo paga (rama lista abajo).
+// SIEMPRE se resuelve en el servidor: el cliente nunca envía precios.
+function unitPriceForTier(
+  price: Prisma.Decimal,
+  offerPrice: Prisma.Decimal | null,
+  wholesalePrice: Prisma.Decimal | null,
+  accountType: string,
+): Prisma.Decimal {
+  if (accountType === 'B2B' && wholesalePrice != null) return wholesalePrice;
+  if (offerPrice != null && offerPrice.lessThan(price)) return offerPrice;
+  return price;
 }
 
 // Ventana (días) durante la cual el seguimiento público de un pedido COMPLETED
@@ -87,6 +104,24 @@ export class OrdersService {
     const { items, couponId } = dto;
     const email = dto.email.toLowerCase();
 
+    // Segmento comercial del comprador. Solo un usuario AUTENTICADO puede ser
+    // mayorista (B2B); los invitados y las cuentas nuevas son B2C. De esto dependen
+    // el precio (wholesalePrice), la elegibilidad por visibilidad y los puntos.
+    let buyerAccountType = 'B2C';
+    if (authUser?.id) {
+      const buyer = await this.prisma.user.findUnique({
+        where: { id: authUser.id },
+        select: { accountType: true },
+      });
+      if (buyer?.accountType === 'B2B') buyerAccountType = 'B2B';
+    }
+    const isWholesaler = buyerAccountType === 'B2B';
+
+    // Los mayoristas NO participan del sistema de puntos: no pueden pagar con puntos.
+    if (isWholesaler && dto.paymentMethod === 'puntos') {
+      throw new BadRequestException('El pago con puntos no está disponible para cuentas mayoristas');
+    }
+
     // La tasa BCV se calcula SIEMPRE en el servidor (el `bcvRate` del cliente se
     // ignora). Sólo es relevante para pago_movil.
     const bcv = await this.bcvService.getRateValue();
@@ -107,13 +142,36 @@ export class OrdersService {
       const productIds = items.map((item) => item.productId);
       const products = await tx.product.findMany({
         where: { id: { in: productIds } },
-        select: { id: true, name: true, price: true, stock: true, pointsEarned: true },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          offerPrice: true,
+          wholesalePrice: true,
+          visibility: true,
+          stock: true,
+          pointsEarned: true,
+        },
       });
 
       const productById = new Map(products.map((p) => [p.id, p]));
       const missing = productIds.filter((id) => !productById.has(id));
       if (missing.length > 0) {
         throw new BadRequestException(`Productos no encontrados: ${missing.join(', ')}`);
+      }
+
+      // Elegibilidad por visibilidad: un comprador no puede adquirir un producto
+      // que no debería ver (p. ej. un B2C comprando un WHOLESALE_ONLY por id
+      // directo). Se re-valida en el servidor; el filtrado del catálogo no basta.
+      const notAllowed = products.filter(
+        (p) => !canAccessVisibility(buyerAccountType, p.visibility),
+      );
+      if (notAllowed.length > 0) {
+        throw new BadRequestException(
+          `Estos productos no están disponibles para tu tipo de cuenta: ${notAllowed
+            .map((p) => p.name)
+            .join(', ')}`,
+        );
       }
 
       // 1b) Validar disponibilidad de stock ANTES de cobrar/crear nada. Se
@@ -236,12 +294,14 @@ export class OrdersService {
       // }
 
       // 5) Construir los items con el precio del servidor y calcular el subtotal.
+      //    El precio unitario depende del segmento: un B2B paga el wholesalePrice
+      //    (si existe). Se congela en el OrderItem (snapshot del momento de compra).
       const orderItems = items.map((item) => {
         const product = productById.get(item.productId)!;
         return {
           productId: item.productId,
           quantity: item.quantity,
-          price: product.price,
+          price: unitPriceForTier(product.price, product.offerPrice, product.wholesalePrice, buyerAccountType),
         };
       });
 
@@ -293,15 +353,18 @@ export class OrdersService {
 
       // 5c) Puntos de fidelidad que otorgará el pedido (snapshot). Se acreditan
       //     al saldo del cliente cuando el pago quede COMPLETED (LoyaltyService).
-      const pointsEarned = orderItems.reduce(
-        (acc, item) =>
-          acc +
-          pointsForUnit(
-            productById.get(item.productId)!.price,
-            productById.get(item.productId)!.pointsEarned ?? null,
-          ) * item.quantity,
-        0,
-      );
+      //     Los mayoristas (B2B) NO participan del sistema de puntos → 0.
+      const pointsEarned = isWholesaler
+        ? 0
+        : orderItems.reduce(
+            (acc, item) =>
+              acc +
+              pointsForUnit(
+                productById.get(item.productId)!.price,
+                productById.get(item.productId)!.pointsEarned ?? null,
+              ) * item.quantity,
+            0,
+          );
 
       // 5d) Descontar stock (ya validado en 1b). decrement es atómico en SQL.
       for (const [pid, qty] of qtyByProduct) {

@@ -129,10 +129,12 @@ export class UsersController {
     if (authUser.role !== 'admin' && authUser.id !== id) {
       throw new ForbiddenException('No tienes acceso al perfil de otro usuario');
     }
-    // Evita escalada de privilegios: un no-admin NO puede cambiar role/status.
+    // Evita escalada de privilegios: un no-admin NO puede cambiar role/status, ni
+    // auto-promoverse a mayorista (accountType) para obtener precios/visibilidad B2B.
     if (authUser.role !== 'admin') {
       delete updateUserDto.role;
       delete updateUserDto.status;
+      delete updateUserDto.accountType;
     }
     return this.usersService.update(id, updateUserDto);
   }

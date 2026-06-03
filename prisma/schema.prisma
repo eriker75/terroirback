@@ -71,8 +71,17 @@ model User {
   state            String
   zip              String
   country          String    @default("Venezuela")
+  // Ubicación del cliente (set desde el mapa del panel de clientes; bidireccional
+  // con los inputs de dirección). Para tracking/logística. Opcional.
+  latitude         Float?
+  longitude        Float?
   role             String    @default("customer")
   status           String    @default("active")
+  // Segmento comercial del cliente (NO es un permiso; el permiso es `role`).
+  // "B2C" = minorista (participa de puntos). "B2B" = mayorista (precio mayorista,
+  // ve productos WHOLESALE_ONLY, NO participa de puntos). String (no enum físico)
+  // para poder añadir niveles a futuro (VIP, distribuidor) sin migraciones de enum.
+  accountType      String    @default("B2C")
 
   orders         Order[]
   wishlist       Wishlist?
@@ -203,11 +212,22 @@ model Product {
   name         String
   description  String
   price        Decimal
+  // Precio de oferta. Si está definido y es menor que `price`, el cliente paga este
+  // precio y la card muestra el precio normal tachado. null = sin oferta.
+  offerPrice   Decimal?
+  // Precio mayorista al por mayor (B2B). DIFERIDO: aún no se gestiona desde el form;
+  // la columna queda lista para cuando se implemente la venta por lotes a B2B.
+  wholesalePrice Decimal?
   mainImage    String?
   images       Json
   stock        Int     @default(0)
   pointsPrice  Float?
   pointsEarned Float?
+  // Quién puede ver/comprar el producto. "ALL" = todos; "RETAIL_ONLY" = solo B2C
+  // (e invitados); "WHOLESALE_ONLY" = solo B2B. El admin siempre ve todo. String
+  // (no enum físico) por consistencia con role/status. Se filtra en ProductsService
+  // y se re-valida en el checkout (no confiar en el cliente).
+  visibility   String  @default("ALL")
 
   categoryId String?
   category   Category? @relation("CategoryProducts", fields: [categoryId], references: [id])
