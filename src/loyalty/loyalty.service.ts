@@ -4,6 +4,8 @@ import { PrismaService } from '../database/database.service';
 
 // Clave bajo la que se guarda el saldo de puntos en `user_settings`.
 export const LOYALTY_POINTS_KEY = 'loyalty_points';
+// Grupo al que pertenece este setting (agrupa lo relacionado a fidelidad).
+export const LOYALTY_GROUP = 'loyalty';
 
 @Injectable()
 export class LoyaltyService {
@@ -52,11 +54,12 @@ export class LoyaltyService {
 
         const id = randomUUID();
         await tx.$executeRaw`
-          INSERT INTO user_settings (id, "userId", "metaKey", "metaValue", "createdAt", "updatedAt")
-          VALUES (${id}, ${order.userId}, ${LOYALTY_POINTS_KEY}, ${String(order.pointsEarned)}, now(), now())
+          INSERT INTO user_settings (id, "userId", "metaKey", "metaValue", "metaGroup", "createdAt", "updatedAt")
+          VALUES (${id}, ${order.userId}, ${LOYALTY_POINTS_KEY}, ${String(order.pointsEarned)}, ${LOYALTY_GROUP}, now(), now())
           ON CONFLICT ("userId", "metaKey")
           DO UPDATE SET
             "metaValue" = (CAST(user_settings."metaValue" AS INTEGER) + ${order.pointsEarned})::text,
+            "metaGroup" = ${LOYALTY_GROUP},
             "updatedAt" = now()
         `;
         this.logger.log(`Acreditados ${order.pointsEarned} pts al usuario ${order.userId} (pedido ${orderId})`);

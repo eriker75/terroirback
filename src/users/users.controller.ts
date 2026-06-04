@@ -16,6 +16,8 @@ import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpsertUserSettingsDto } from './dto/upsert-user-settings.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Auth } from './decorators/auth.decorators';
 import { GetUser } from './decorators/get-user.decorator';
 import { User } from './entities/user.entity';
@@ -98,6 +100,62 @@ export class UsersController {
   @ApiOperation({ summary: '[Admin] Totales de clientes: total, activos, inactivos' })
   getCustomerStats() {
     return this.usersService.getCustomerStats();
+  }
+
+  // ── Cambio de contraseña (verifica la actual; el dueño o un admin) ─────────
+
+  @Post(':id/change-password')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cambiar la contraseña (verifica la actual)' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
+  @ApiResponse({ status: 401, description: 'La contraseña actual es incorrecta.' })
+  @ApiResponse({ status: 403, description: 'No puedes cambiar la contraseña de otro usuario.' })
+  changePassword(
+    @Param('id') id: string,
+    @Body() dto: ChangePasswordDto,
+    @GetUser() authUser: User,
+  ) {
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      throw new ForbiddenException('No puedes cambiar la contraseña de otro usuario');
+    }
+    return this.usersService.changePassword(id, dto.currentPassword, dto.newPassword);
+  }
+
+  // ── User settings (preferencias propias; el dueño o un admin) ──────────────
+
+  @Get(':id/settings')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Listar los settings del usuario (filtrar por ?group=)' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
+  @ApiResponse({ status: 403, description: 'No puedes ver los settings de otro usuario.' })
+  getSettings(
+    @Param('id') id: string,
+    @Query('group') group: string | undefined,
+    @GetUser() authUser: User,
+  ) {
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      throw new ForbiddenException('No tienes acceso a los settings de otro usuario');
+    }
+    return this.usersService.getUserSettings(id, group);
+  }
+
+  @Patch(':id/settings')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Crear/actualizar settings del usuario (upsert por metaKey)' })
+  @ApiParam({ name: 'id', description: 'UUID del usuario' })
+  @ApiResponse({ status: 403, description: 'No puedes modificar los settings de otro usuario.' })
+  upsertSettings(
+    @Param('id') id: string,
+    @Body() dto: UpsertUserSettingsDto,
+    @GetUser() authUser: User,
+  ) {
+    if (authUser.role !== 'admin' && authUser.id !== id) {
+      throw new ForbiddenException('No tienes acceso a los settings de otro usuario');
+    }
+    return this.usersService.upsertUserSettings(id, dto.settings);
   }
 
   @Get(':id')

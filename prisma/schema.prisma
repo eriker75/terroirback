@@ -64,6 +64,7 @@ model User {
   firstName        String
   lastName         String
   avatar           String?
+  birthDate        String?   // fecha de nacimiento (YYYY-MM-DD). String para evitar líos de zona horaria.
   password         String?   // opcional: las cuentas creadas vía login social (Google/Apple) no tienen contraseña local
   phone            String
   address          String
@@ -549,11 +550,13 @@ model UserSetting {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   metaKey   String // p.ej. "loyalty_points"
   metaValue String // valor serializado (para puntos: entero como string)
+  metaGroup String? // agrupa settings relacionados (p.ej. "notifications")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, metaKey])
   @@index([userId])
+  @@index([metaGroup])
   @@map("user_settings")
 }
 

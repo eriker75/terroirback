@@ -37,6 +37,7 @@ export class UsersService {
     firstName: true,
     lastName: true,
     avatar: true,
+    birthDate: true,
     phone: true,
     address: true,
     city: true,
@@ -64,6 +65,43 @@ export class UsersService {
     if (!row) return 0;
     const n = parseInt(row.metaValue, 10);
     return Number.isFinite(n) ? n : 0;
+  }
+
+  // ── User settings (clave-valor por usuario, agrupado por metaGroup) ─────────
+  // Preferencias del propio usuario (p.ej. notificaciones). La pertenencia la
+  // verifica el controller.
+  async getUserSettings(userId: string, group?: string) {
+    return this.prisma.userSetting.findMany({
+      where: { userId, ...(group ? { metaGroup: group } : {}) },
+      select: { metaKey: true, metaValue: true, metaGroup: true },
+      orderBy: { metaKey: 'asc' },
+    });
+  }
+
+  // Upsert atómico por (userId, metaKey). Solo toca las claves recibidas, por lo
+  // que NO afecta otras como `loyalty_points`.
+  async upsertUserSettings(
+    userId: string,
+    settings: { metaKey: string; metaValue: string; metaGroup?: string }[],
+  ) {
+    await this.prisma.$transaction(
+      settings.map((s) =>
+        this.prisma.userSetting.upsert({
+          where: { userId_metaKey: { userId, metaKey: s.metaKey } },
+          update: {
+            metaValue: s.metaValue,
+            ...(s.metaGroup !== undefined ? { metaGroup: s.metaGroup } : {}),
+          },
+          create: {
+            userId,
+            metaKey: s.metaKey,
+            metaValue: s.metaValue,
+            metaGroup: s.metaGroup ?? null,
+          },
+        }),
+      ),
+    );
+    return this.getUserSettings(userId);
   }
 
   // Emite una sesión (tokens + datos limpios del usuario, SIN password) para un
@@ -362,11 +400,38 @@ export class UsersService {
       ? { ...rest, password: await bcrypt.hash(password, 10) }
       : rest;
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data,
       select: this.publicUserSelect,
     });
+    // Adjuntar el saldo de puntos (como findOne) para que el cliente no lo
+    // "pierda" tras editar el perfil (el select no incluye user_settings).
+    const loyaltyPoints = await this.getLoyaltyPoints(id);
+    return { ...updated, loyaltyPoints };
+  }
+
+  // Cambio de contraseña verificando la actual (flujo seguro de "cambiar
+  // contraseña" desde el perfil). El control de pertenencia lo hace el controller.
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, password: true },
+    });
+    if (!user) throw new NotFoundException(`User with id ${userId} not found`);
+    if (!user.password) {
+      throw new BadRequestException(
+        'Esta cuenta inicia sesión con Google/Apple; no tiene contraseña local.',
+      );
+    }
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) throw new UnauthorizedException('La contraseña actual es incorrecta');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(newPassword, 10) },
+    });
+    return { success: true };
   }
 
   async remove(id: string) {

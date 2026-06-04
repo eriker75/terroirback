@@ -30,6 +30,12 @@ export class CreateUserDto {
   @IsString()
   avatar?: string;
 
+  @ApiPropertyOptional({ example: '1990-03-15', description: 'Fecha de nacimiento (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  birthDate?: string;
+
   @ApiProperty({ example: 'contraseña123' })
   @IsString()
   @MinLength(6)
