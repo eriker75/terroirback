@@ -11,10 +11,16 @@ import {
   type BulkResult,
 } from '../common/bulk/bulk-import.helper';
 import { compactRow } from '../common/bulk/compact-row';
+import { ExpoPushService, PushPayload } from './push/expo-push.service';
+import { PushTokensService } from './push-tokens.service';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly expoPush: ExpoPushService,
+    private readonly pushTokens: PushTokensService,
+  ) {}
 
   create(dto: CreateNotificationDto) {
     return this.prisma.notification.create({
@@ -41,8 +47,11 @@ export class NotificationsService {
   }
 
   async findOne(id: string) {
-    const notification = await this.prisma.notification.findUnique({ where: { id } });
-    if (!notification) throw new NotFoundException(`Notification ${id} not found`);
+    const notification = await this.prisma.notification.findUnique({
+      where: { id },
+    });
+    if (!notification)
+      throw new NotFoundException(`Notification ${id} not found`);
     return notification;
   }
 
@@ -55,22 +64,67 @@ export class NotificationsService {
         message: dto.message,
         audience: dto.audience,
         status: dto.status,
-        scheduledAt: dto.scheduledAt !== undefined
-          ? (dto.scheduledAt ? new Date(dto.scheduledAt) : null)
-          : undefined,
+        scheduledAt:
+          dto.scheduledAt !== undefined
+            ? dto.scheduledAt
+              ? new Date(dto.scheduledAt)
+              : null
+            : undefined,
       },
     });
   }
 
+  // Despacha la notificación ahora: resuelve la audiencia → tokens activos,
+  // envía vía Expo, limpia los tokens muertos y persiste el resultado.
   async sendNow(id: string) {
-    await this.findOne(id);
+    const notification = await this.findOne(id);
+
+    const tokens = await this.pushTokens.getTokensForAudience(
+      notification.audience,
+    );
+
+    const { sent } = await this.dispatch(tokens, {
+      title: notification.title,
+      body: notification.message,
+      data: { type: 'campaign', notificationId: notification.id },
+    });
+
     return this.prisma.notification.update({
       where: { id },
       data: {
         status: NotificationStatus.SENT,
         sentAt: new Date(),
+        sentCount: sent,
       },
     });
+  }
+
+  // Push de prueba a los propios dispositivos del usuario autenticado.
+  async sendTestToUser(
+    userId: string,
+    opts: { title?: string; body?: string } = {},
+  ) {
+    const tokens = await this.pushTokens.getEnabledTokensForUser(userId);
+    const result = await this.dispatch(tokens, {
+      title: opts.title ?? 'Notificación de prueba',
+      body: opts.body ?? 'Tus notificaciones push están funcionando 🎉',
+      data: { type: 'test' },
+    });
+    return { devices: tokens.length, ...result };
+  }
+
+  // Envío + limpieza de tokens inválidos. Compartido por campañas y avisos.
+  private async dispatch(tokens: string[], payload: PushPayload) {
+    if (tokens.length === 0) {
+      return { sent: 0, invalidTokens: [], skippedTokens: [] };
+    }
+    const result = await this.expoPush.send(tokens, payload);
+    await this.pushTokens.removeInvalidTokens(result.invalidTokens);
+    return {
+      sent: result.sent,
+      invalidTokens: result.invalidTokens,
+      skippedTokens: result.skippedTokens,
+    };
   }
 
   async remove(id: string) {
@@ -96,7 +150,9 @@ export class NotificationsService {
           }) as Record<string, unknown>,
         );
         const id =
-          typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined;
+          typeof raw.id === 'string' && raw.id.trim()
+            ? raw.id.trim()
+            : undefined;
         return { dto, id };
       },
       findExisting: ({ dto, id }) =>

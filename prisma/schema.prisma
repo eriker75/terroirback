@@ -92,6 +92,7 @@ model User {
   socialAccounts SocialAccount[]
   contacts       Contact[]
   settings       UserSetting[]
+  pushTokens     PushToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -609,6 +610,44 @@ model Notification {
   updatedAt   DateTime             @updatedAt
 
   @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// PUSH TOKENS (Expo / dispositivos del cliente)
+// -----------------------------------------------------------------------------
+// Cada fila es el token de notificaciones push de un dispositivo de la app móvil
+// (Expo). Equivale a `nowful_user_fcm_tokens` del proyecto Nowful, adaptado al
+// SDK de Expo. El móvil registra su token tras conceder permisos (ver
+// PushNotificationProvider en la app); el backend lo usa para enviar campañas y
+// avisos transaccionales vía expo-server-sdk.
+//
+// · token      → "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]". Único: un mismo
+//                dispositivo pertenece a un solo usuario a la vez. Al re-loguearse
+//                en otro dispositivo/cuenta se reasigna el userId (upsert por token,
+//                como el ON DUPLICATE KEY de Nowful).
+// · enabled    → el usuario puede silenciar este dispositivo sin borrar el token
+//                (switch de ajustes). Espejo del flag `enabled` de Nowful.
+// · tokens inválidos (DeviceNotRegistered en el ticket de Expo) se borran
+//   automáticamente al enviar — ese token ya no volverá a ser válido.
+model PushToken {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  // Plataforma del dispositivo: "ios" | "android" | "web". Informativo.
+  platform   String?
+  // Nombre/modelo del dispositivo o user-agent (espejo de `browser` en Nowful).
+  deviceName String?
+  enabled    Boolean  @default(true)
+  // Última vez que el token se registró/refrescó desde la app. Útil para depurar
+  // y, a futuro, purgar tokens viejos.
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([enabled])
+  @@map("push_tokens")
 }
 
 // -----------------------------------------------------------------------------
