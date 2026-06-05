@@ -8,6 +8,12 @@ import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
 
 // Para listados/admin sólo interesa cuántos productos usan la etiqueta,
 // no el detalle completo de cada producto: el conteo mantiene el payload liviano.
@@ -75,6 +81,26 @@ export class TagsService {
 
     return this.prisma.tag.delete({
       where: { id },
+    });
+  }
+
+  // Importación masiva desde CSV. La clave única para resolver duplicados es
+  // `name`/`slug` (ambos @unique). Reutiliza la misma validación (CreateTagDto)
+  // y la lógica de create/update del recurso.
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    return runBulkImport<CreateTagDto>(rows, mode, {
+      prepare: (raw) =>
+        validateAgainstDto(CreateTagDto, {
+          name: raw.name,
+          slug: raw.slug,
+        }),
+      findExisting: (row) =>
+        this.prisma.tag.findFirst({
+          where: { OR: [{ name: row.name }, { slug: row.slug }] },
+        }),
+      create: (row) => this.create(row),
+      update: (existing, row) =>
+        this.update((existing as { id: string }).id, row),
     });
   }
 

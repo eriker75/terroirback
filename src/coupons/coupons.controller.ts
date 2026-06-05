@@ -7,6 +7,7 @@ import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('coupons')
 @Controller('coupons')
@@ -23,6 +24,16 @@ export class CouponsController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createCouponDto: CreateCouponDto) {
     return this.couponsService.create(createCouponDto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar cupones en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.couponsService.bulkImport(bulkImportDto);
   }
 
   // Público: validar un cupón por código (lo usa el carrito/checkout de la

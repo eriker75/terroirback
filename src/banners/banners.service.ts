@@ -3,6 +3,12 @@ import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
 
 @Injectable()
 export class BannersService {
@@ -52,6 +58,34 @@ export class BannersService {
 
     return this.prisma.banner.delete({
       where: { id },
+    });
+  }
+
+  // Importación masiva desde CSV. Los banners no tienen clave única natural:
+  // se resuelve duplicado por `id` (si viene en el archivo) o por `title`.
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    type BannerRow = { dto: CreateBannerDto; id?: string };
+
+    return runBulkImport<BannerRow>(rows, mode, {
+      prepare: async (raw) => {
+        const dto = await validateAgainstDto(CreateBannerDto, {
+          image: raw.image,
+          title: raw.title,
+          description: raw.description,
+          buttonText: raw.buttonText,
+          buttonLink: raw.buttonLink,
+        });
+        const id =
+          typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined;
+        return { dto, id };
+      },
+      findExisting: ({ dto, id }) =>
+        id
+          ? this.prisma.banner.findUnique({ where: { id } })
+          : this.prisma.banner.findFirst({ where: { title: dto.title } }),
+      create: ({ dto }) => this.create(dto),
+      update: (existing, { dto }) =>
+        this.update((existing as { id: string }).id, dto),
     });
   }
 }

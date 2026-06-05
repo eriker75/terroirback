@@ -23,6 +23,7 @@ import { GetUser } from './decorators/get-user.decorator';
 import { User } from './entities/user.entity';
 import { ValidRoles } from './interfaces';
 import { UserQueryDto } from './dto/user-query.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('users')
 @Controller('users')
@@ -84,6 +85,16 @@ export class UsersController {
   @ApiOperation({ summary: '[Admin] Crear usuario con control total' })
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);
+  }
+
+  // Admin: importación masiva de clientes desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar clientes en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.usersService.bulkImport(bulkImportDto);
   }
 
   @Get()

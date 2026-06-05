@@ -6,6 +6,13 @@ import { AdjustStockDto, StockOperation } from './dto/adjust-stock.dto';
 import { FilterProductsDto, ProductSort } from './dto/filter-products.dto';
 import { PrismaService } from '../database/database.service';
 import { canAccessVisibility } from '../common/account.constants';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
+import { compactRow } from '../common/bulk/compact-row';
 
 // Quién consulta el catálogo. null = invitado. El admin (role) ve todo; un B2B
 // (accountType) ve además los WHOLESALE_ONLY. Lo pasa el controller desde el token.
@@ -303,5 +310,48 @@ export class ProductsService {
   async remove(id: string) {
     await this.findOne(id);
     return this.prisma.product.delete({ where: { id } });
+  }
+
+  // Importación masiva desde CSV. El catálogo no tiene un campo único natural
+  // (el `name` puede repetirse), así que para resolver duplicados se usa la
+  // columna `id` si viene en el archivo (la exportación la incluye); si no, se
+  // intenta casar por `name`. Las relaciones complejas (atributos, variantes,
+  // productos relacionados) no se importan por CSV. En modo update el stock no
+  // se toca (se ajusta sólo vía adjustStock), igual que en la edición normal.
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    type ProductRow = { dto: CreateProductDto; id?: string };
+
+    return runBulkImport<ProductRow>(rows, mode, {
+      prepare: async (raw) => {
+        const dto = await validateAgainstDto(
+          CreateProductDto,
+          compactRow({
+            name: raw.name,
+            description: raw.description,
+            price: raw.price,
+            offerPrice: raw.offerPrice,
+            wholesalePrice: raw.wholesalePrice,
+            visibility: raw.visibility,
+            mainImage: raw.mainImage,
+            images: raw.images,
+            stock: raw.stock,
+            categoryId: raw.categoryId,
+            tagIds: raw.tagIds,
+            pointsPrice: raw.pointsPrice,
+            pointsEarned: raw.pointsEarned,
+          }) as Record<string, unknown>,
+        );
+        const id =
+          typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined;
+        return { dto, id };
+      },
+      findExisting: ({ dto, id }) =>
+        id
+          ? this.prisma.product.findUnique({ where: { id } })
+          : this.prisma.product.findFirst({ where: { name: dto.name } }),
+      create: ({ dto }) => this.create(dto),
+      update: (existing, { dto }) =>
+        this.update((existing as { id: string }).id, dto),
+    });
   }
 }

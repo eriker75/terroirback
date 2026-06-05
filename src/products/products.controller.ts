@@ -9,6 +9,7 @@ import { Auth } from '../users/decorators/auth.decorators';
 import { OptionalJwtAuthGuard } from '../users/guards/optional-jwt.guard';
 import { OptionalUser } from '../users/decorators/optional-user.decorator';
 import { ValidRoles } from '../users/interfaces';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 // Datos mínimos del visor para resolver la visibilidad/precio del catálogo.
 export type ProductViewer = { role?: string; accountType?: string } | null;
@@ -28,6 +29,16 @@ export class ProductsController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createProductDto: CreateProductDto) {
     return this.productsService.create(createProductDto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar productos en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.productsService.bulkImport(bulkImportDto);
   }
 
   // Público (auth opcional): catálogo de productos con filtros (búsqueda, categoría,

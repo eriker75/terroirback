@@ -6,6 +6,7 @@ import { UpdateTagDto } from './dto/update-tag.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('tags')
 @Controller('tags')
@@ -22,6 +23,16 @@ export class TagsController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createTagDto: CreateTagDto) {
     return this.tagsService.create(createTagDto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar etiquetas en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.tagsService.bulkImport(bulkImportDto);
   }
 
   // Público: listar etiquetas

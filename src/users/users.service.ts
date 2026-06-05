@@ -18,6 +18,13 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { UserQueryDto } from './dto/user-query.dto';
 import { LOYALTY_POINTS_KEY } from '../loyalty/loyalty.service';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
+import { compactRow } from '../common/bulk/compact-row';
 
 /** Duración del refresh token: 30 días en ms */
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -452,6 +459,52 @@ export class UsersService {
       }),
     ]);
     return deleted;
+  }
+
+  // Importación masiva de clientes desde CSV. Clave única para duplicados:
+  // `email` (@unique). En modo create, si el CSV no trae contraseña se genera
+  // una temporal aleatoria (el cliente la restablece con "olvidé mi contraseña");
+  // importar contraseñas en texto plano no es realista para una lista migrada.
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    return runBulkImport<Record<string, unknown>>(rows, mode, {
+      prepare: (raw) =>
+        compactRow({
+          email: raw.email,
+          firstName: raw.firstName,
+          lastName: raw.lastName,
+          password: raw.password,
+          phone: raw.phone,
+          address: raw.address,
+          city: raw.city,
+          state: raw.state,
+          zip: raw.zip,
+          country: raw.country,
+          birthDate: raw.birthDate,
+          latitude: raw.latitude,
+          longitude: raw.longitude,
+          role: raw.role,
+          status: raw.status,
+          accountType: raw.accountType,
+        }),
+      findExisting: async (row) =>
+        typeof row.email === 'string'
+          ? this.prisma.user.findFirst({
+              where: { email: row.email, deletedAt: null },
+            })
+          : null,
+      create: async (row) => {
+        const withPassword = {
+          ...row,
+          password: row.password ?? randomBytes(9).toString('base64url'),
+        };
+        const dto = await validateAgainstDto(CreateUserDto, withPassword);
+        return this.create(dto);
+      },
+      update: async (existing, row) => {
+        const dto = await validateAgainstDto(UpdateUserDto, row);
+        return this.update((existing as { id: string }).id, dto);
+      },
+    });
   }
 
   async getCustomerStats() {

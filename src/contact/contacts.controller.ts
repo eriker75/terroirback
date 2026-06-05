@@ -7,6 +7,7 @@ import { UpdateContactDto } from './dto/update-contact.dto';
 import { BlockContactDto } from './dto/block-contact.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 // Controlador del directorio de contactos (plural) para el dashboard admin.
 // Se mantiene aparte de `@Controller('contact')` (mensajes/blocks) para evitar
@@ -35,6 +36,16 @@ export class ContactsController {
   @ApiResponse({ status: 409, description: 'Ya existe un contacto con ese email.' })
   create(@Body() dto: CreateContactDto) {
     return this.contactService.createContact(dto);
+  }
+
+  // Admin: importación masiva del directorio desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar contactos en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.contactService.bulkImportContacts(bulkImportDto);
   }
 
   @Patch(':id')

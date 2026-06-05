@@ -713,6 +713,32 @@ export class OrdersService {
     const sum = (rows: { total: Prisma.Decimal }[]) =>
       rows.reduce((acc, r) => acc + parseFloat(r.total.toString()), 0);
 
+    // Diario: ingresos día a día de un mes concreto del año seleccionado.
+    if (period === AnalyticsPeriod.DAILY) {
+      const monthIdx = (dto.month ?? new Date().getMonth() + 1) - 1; // 0-indexed
+      const start = new Date(year, monthIdx, 1);
+      const end = new Date(year, monthIdx + 1, 0, 23, 59, 59); // último día del mes
+      const daysInMonth = end.getDate();
+
+      const orders = await this.prisma.order.findMany({
+        where: {
+          status: { not: OrderStatus.CANCELLED },
+          createdAt: { gte: start, lte: end },
+        },
+        select: { createdAt: true, total: true },
+      });
+
+      return Array.from({ length: daysInMonth }, (_, i) => {
+        const day = i + 1;
+        const rows = orders.filter((o) => o.createdAt.getDate() === day);
+        return {
+          label: String(day).padStart(2, '0'),
+          ventas: rows.length,
+          ingresos: sum(rows),
+        };
+      });
+    }
+
     if (period === AnalyticsPeriod.ANNUAL) {
       const orders = await this.prisma.order.findMany({
         where: {

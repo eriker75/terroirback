@@ -6,6 +6,7 @@ import { UpdateBannerDto } from './dto/update-banner.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('banners')
 @Controller('banners')
@@ -22,6 +23,16 @@ export class BannersController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createBannerDto: CreateBannerDto) {
     return this.bannersService.create(createBannerDto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar banners en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.bannersService.bulkImport(bulkImportDto);
   }
 
   // Público: ver banners del storefront

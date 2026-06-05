@@ -15,6 +15,13 @@ import { CreateContactBlockDto } from './dto/create-contact-block.dto';
 import { QueryContactDto } from './dto/query-contact.dto';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
+import { compactRow } from '../common/bulk/compact-row';
 
 // Anti-inundación: ventana deslizante en memoria por IP.
 const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
@@ -225,6 +232,7 @@ export class ContactService {
       if (row.user?.password) sources.push('registration');
       if (orderCount > 0) sources.push('purchase');
       if (messageCount > 0) sources.push('contact_form');
+      if (row.fromNewsletter) sources.push('newsletter');
 
       // Reexponemos el usuario SIN la contraseña.
       const user = row.user
@@ -252,6 +260,37 @@ export class ContactService {
     });
 
     return { data, total, limit, offset };
+  }
+
+  // Público: suscripción al newsletter desde la web. Se guarda como Contact con
+  // el flag `fromNewsletter` (que el directorio muestra como fuente "newsletter").
+  // Idempotente por email: si ya existe, sólo marca la fuente sin pisar sus datos.
+  async subscribeNewsletter(email: string) {
+    const normalized = email.trim().toLowerCase();
+    const existing = await this.prisma.contact.findUnique({
+      where: { email: normalized },
+    });
+
+    if (existing) {
+      if (!existing.fromNewsletter) {
+        await this.prisma.contact.update({
+          where: { id: existing.id },
+          data: { fromNewsletter: true },
+        });
+      }
+      return { subscribed: true };
+    }
+
+    const localPart = normalized.split('@')[0] || 'Suscriptor';
+    await this.prisma.contact.create({
+      data: {
+        email: normalized,
+        firstName: localPart.slice(0, 120),
+        lastName: '',
+        fromNewsletter: true,
+      },
+    });
+    return { subscribed: true };
   }
 
   // ── Admin: CRUD de contactos ───────────────────────────────────────────────
@@ -319,6 +358,30 @@ export class ContactService {
         contactId: contact.id,
         ...(reason ? { reason } : {}),
       },
+    });
+  }
+
+  // Importación masiva del directorio de contactos desde CSV. Clave única para
+  // duplicados: `email` (@unique en el modelo Contact).
+  async bulkImportContacts({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    return runBulkImport<CreateContactDto>(rows, mode, {
+      prepare: (raw) =>
+        validateAgainstDto(
+          CreateContactDto,
+          compactRow({
+            firstName: raw.firstName,
+            lastName: raw.lastName,
+            email: raw.email,
+            phone: raw.phone,
+          }) as Record<string, unknown>,
+        ),
+      findExisting: (row) =>
+        this.prisma.contact.findUnique({
+          where: { email: row.email.toLowerCase() },
+        }),
+      create: (row) => this.createContact(row),
+      update: (existing, row) =>
+        this.updateContact((existing as { id: string }).id, row),
     });
   }
 }

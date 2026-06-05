@@ -6,6 +6,7 @@ import { CreateContactMessageDto } from './dto/create-contact-message.dto';
 import { UpdateContactMessageDto } from './dto/update-contact-message.dto';
 import { QueryContactMessageDto } from './dto/query-contact-message.dto';
 import { CreateContactBlockDto } from './dto/create-contact-block.dto';
+import { SubscribeNewsletterDto } from './dto/subscribe-newsletter.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 
@@ -30,6 +31,16 @@ export class ContactController {
   ) {
     const realIp = xff?.split(',')[0]?.trim() || ip || 'unknown';
     return this.contactService.createFromPublic(dto, realIp);
+  }
+
+  // Público: suscripción al newsletter. Guarda el email como contacto con la
+  // fuente "newsletter" (idempotente por email).
+  @Post('newsletter')
+  @ApiOperation({ summary: 'Suscribirse al newsletter (público)' })
+  @ApiResponse({ status: 201, description: 'Suscripción registrada.' })
+  @ApiResponse({ status: 400, description: 'Email inválido.' })
+  subscribeNewsletter(@Body() dto: SubscribeNewsletterDto) {
+    return this.contactService.subscribeNewsletter(dto.email);
   }
 
   // ── Admin: rutas estáticas antes de las paramétricas ───────────────────────

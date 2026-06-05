@@ -3,6 +3,12 @@ import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
 
 @Injectable()
 export class CouponsService {
@@ -119,6 +125,33 @@ export class CouponsService {
 
     return this.prisma.coupon.delete({
       where: { id },
+    });
+  }
+
+  // Importación masiva desde CSV. Clave única para duplicados: `code` (@unique).
+  // No se importa `allowedProductIds` (relación de productos) por CSV.
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    return runBulkImport<CreateCouponDto>(rows, mode, {
+      prepare: (raw) =>
+        validateAgainstDto(CreateCouponDto, {
+          code: raw.code,
+          discountType: raw.discountType,
+          amount: raw.amount,
+          ...(raw.isActive != null && raw.isActive !== ''
+            ? { isActive: raw.isActive }
+            : {}),
+          ...(raw.expiryDate != null && raw.expiryDate !== ''
+            ? { expiryDate: raw.expiryDate }
+            : {}),
+          ...(raw.usageLimit != null && raw.usageLimit !== ''
+            ? { usageLimit: raw.usageLimit }
+            : {}),
+        }),
+      findExisting: (row) =>
+        this.prisma.coupon.findUnique({ where: { code: row.code } }),
+      create: (row) => this.create(row),
+      update: (existing, row) =>
+        this.update((existing as { id: string }).id, row),
     });
   }
 }

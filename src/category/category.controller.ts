@@ -6,6 +6,7 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('categories')
 @Controller('categories')
@@ -22,6 +23,16 @@ export class CategoryController {
   @ApiResponse({ status: 403, description: 'Sin permisos suficientes.' })
   create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.create(createCategoryDto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar categorías en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.categoryService.bulkImport(bulkImportDto);
   }
 
   // Público: listar categorías

@@ -466,6 +466,10 @@ model Contact {
   lastName  String
   email     String   @unique
   phone     String?
+  // Marca que el contacto se originó (también) al suscribirse al newsletter web.
+  // Las demás "fuentes" (registro/compra/formulario) se derivan de relaciones;
+  // el newsletter no tiene relación propia, por eso se persiste como flag.
+  fromNewsletter Boolean @default(false)
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
   orders    Order[]

@@ -3,6 +3,12 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
+import {
+  runBulkImport,
+  validateAgainstDto,
+  type BulkResult,
+} from '../common/bulk/bulk-import.helper';
 
 @Injectable()
 export class CategoryService {
@@ -65,6 +71,26 @@ export class CategoryService {
 
     return this.prisma.category.delete({
       where: { id },
+    });
+  }
+
+  // Importación masiva desde CSV. Clave única para duplicados: `slug` (@unique).
+  async bulkImport({ mode, rows }: BulkImportDto): Promise<BulkResult> {
+    return runBulkImport<CreateCategoryDto>(rows, mode, {
+      prepare: (raw) =>
+        validateAgainstDto(CreateCategoryDto, {
+          name: raw.name,
+          slug: raw.slug,
+          ...(raw.image != null && raw.image !== '' ? { image: raw.image } : {}),
+          ...(raw.parentId != null && raw.parentId !== ''
+            ? { parentId: raw.parentId }
+            : {}),
+        }),
+      findExisting: (row) =>
+        this.prisma.category.findUnique({ where: { slug: row.slug } }),
+      create: (row) => this.create(row),
+      update: (existing, row) =>
+        this.update((existing as { id: string }).id, row),
     });
   }
 }

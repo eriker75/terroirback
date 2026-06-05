@@ -6,6 +6,7 @@ import { UpdateNotificationDto } from './dto/update-notification.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { ValidRoles } from '../users/interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { BulkImportDto } from '../common/dto/bulk-import.dto';
 
 @ApiTags('notifications')
 @Controller('notifications')
@@ -19,6 +20,16 @@ export class NotificationsController {
   @ApiResponse({ status: 201 })
   create(@Body() dto: CreateNotificationDto) {
     return this.notificationsService.create(dto);
+  }
+
+  // Admin: importación masiva desde CSV (crear / actualizar / upsert)
+  @Post('bulk')
+  @Auth(ValidRoles.admin)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Importar notificaciones en lote (CSV)' })
+  @ApiResponse({ status: 201, description: 'Reporte de importación.' })
+  bulkImport(@Body() bulkImportDto: BulkImportDto) {
+    return this.notificationsService.bulkImport(bulkImportDto);
   }
 
   @Get()
