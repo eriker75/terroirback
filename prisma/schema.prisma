@@ -212,15 +212,22 @@ model Product {
   id           String  @unique @default(uuid())
   name         String
   description  String
+  // Precio del producto (la bolsa). El café se vende en bolsas estandarizadas: cada
+  // producto es una bolsa que se compra por unidades enteras.
   price        Decimal
   // Precio de oferta. Si está definido y es menor que `price`, el cliente paga este
   // precio y la card muestra el precio normal tachado. null = sin oferta.
   offerPrice   Decimal?
-  // Precio mayorista al por mayor (B2B). DIFERIDO: aún no se gestiona desde el form;
-  // la columna queda lista para cuando se implemente la venta por lotes a B2B.
-  wholesalePrice Decimal?
+  // Costo del producto (lo que paga la tienda). SOLO admin: nunca se expone al cliente
+  // (se omite en respuestas públicas de catálogo/carrito/orden). Base de utilidades/COGS.
+  cost         Decimal? @db.Decimal(12, 2)
+  // Peso/tamaño de la bolsa en KG (3 decimales: 0.275 = 275g, 1 = 1kg, 4 = 4kg). Es un
+  // identificador (como la talla de una camisa): se muestra en la card (<1kg → "g",
+  // ≥1kg → "kg") y sirve para filtrar el catálogo.
+  weightKg     Decimal? @db.Decimal(7, 3)
   mainImage    String?
   images       Json
+  // Stock disponible (cantidad de bolsas). Entero: la compra es por unidades.
   stock        Int     @default(0)
   pointsPrice  Float?
   pointsEarned Float?
@@ -371,6 +378,7 @@ model CartItem {
   cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Cantidad de bolsas (entero): la compra es por unidades.
   quantity  Int     @default(1)
 
   @@unique([cartId, productId])
@@ -454,8 +462,14 @@ model OrderItem {
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId String
   product   Product @relation(fields: [productId], references: [id])
+  // Cantidad de bolsas (entero).
   quantity  Int
+  // Precio unitario congelado al momento de la compra (snapshot).
   price     Decimal
+  // Costo unitario congelado al momento de la compra (snapshot del Product.cost).
+  // SOLO admin/finanzas: se omite en respuestas de orden de cara al cliente. null en
+  // órdenes históricas previas al costeo → excluidas del COGS.
+  costSnapshot Decimal? @db.Decimal(12, 2)
 
   @@map("order_items")
 }

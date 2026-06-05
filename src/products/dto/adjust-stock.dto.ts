@@ -11,7 +11,7 @@ export class AdjustStockDto {
   @IsEnum(StockOperation)
   operation: StockOperation;
 
-  @ApiProperty({ example: 5, description: 'Cantidad de unidades a sumar o restar (entero positivo)' })
+  @ApiProperty({ example: 5, description: 'Cantidad de unidades (bolsas) a sumar o restar (entero positivo)' })
   @IsInt()
   @Min(1)
   quantity: number;

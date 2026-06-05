@@ -75,6 +75,13 @@ export class ProductsService {
     });
   }
 
+  // `cost` es admin-only: se omite de la respuesta salvo que el visor sea admin.
+  // (Las llamadas internas sin viewer también lo omiten; el costo se lee con selects
+  // dedicados en checkout/finanzas, nunca por esta vía.)
+  private costOmit(viewer?: ProductViewer) {
+    return viewer?.role === 'admin' ? undefined : ({ cost: true } as const);
+  }
+
   async findAll(filters: FilterProductsDto, viewer?: ProductViewer) {
     const { limit, offset } = filters;
     const where = this.buildWhere(filters, viewer);
@@ -84,6 +91,7 @@ export class ProductsService {
       this.prisma.product.findMany({
         where,
         include: this.productInclude,
+        omit: this.costOmit(viewer),
         orderBy,
         take: limit,
         skip: offset,
@@ -119,6 +127,9 @@ export class ProductsService {
 
     const price = this.range(filters.minPrice, filters.maxPrice);
     if (price) AND.push({ price });
+
+    // Filtro por tamaño de bolsa (kg): coincidencia exacta múltiple (chips).
+    if (filters.weights?.length) AND.push({ weightKg: { in: filters.weights } });
 
     const points = this.range(filters.minPoints, filters.maxPoints);
     if (points) AND.push({ pointsPrice: points });
@@ -203,6 +214,7 @@ export class ProductsService {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: this.productInclude,
+      omit: this.costOmit(viewer),
     });
 
     if (!product) {
@@ -292,19 +304,20 @@ export class ProductsService {
 
     if (result.count === 0) {
       // O el producto no existe, o no hay stock suficiente. Distinguimos ambos casos.
-      const product = await this.prisma.product.findUnique({
+      const fresh = await this.prisma.product.findUnique({
         where: { id },
         select: { stock: true },
       });
-      if (!product) {
+      if (!fresh) {
         throw new NotFoundException(`Product with id ${id} not found`);
       }
       throw new BadRequestException(
-        `Stock insuficiente: hay ${product.stock} unidades y se intentan restar ${quantity}`,
+        `Stock insuficiente: hay ${fresh.stock} unidades y se intentan restar ${quantity}`,
       );
     }
 
-    return this.findOne(id);
+    // Devolvemos con el costo incluido (endpoint admin-only).
+    return this.findOne(id, { role: 'admin' });
   }
 
   async remove(id: string) {
@@ -330,7 +343,8 @@ export class ProductsService {
             description: raw.description,
             price: raw.price,
             offerPrice: raw.offerPrice,
-            wholesalePrice: raw.wholesalePrice,
+            cost: raw.cost,
+            weightKg: raw.weightKg,
             visibility: raw.visibility,
             mainImage: raw.mainImage,
             images: raw.images,

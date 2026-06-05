@@ -77,14 +77,24 @@ export class CreateProductDto {
   offerPrice?: number | null;
 
   @ApiPropertyOptional({
-    example: 32.0,
-    description: 'Precio mayorista al por mayor (B2B). Diferido; aún no se usa en el form.',
+    example: 18.5,
+    description: 'Costo del producto (lo que paga la tienda). SOLO admin; nunca se expone al cliente. Base del cálculo de utilidades.',
     nullable: true,
   })
   @IsOptional()
   @IsNumber()
   @Min(0)
-  wholesalePrice?: number | null;
+  cost?: number | null;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Peso/tamaño de la bolsa en KG, hasta 3 decimales (0.275 = 275g, 1 = 1kg, 4 = 4kg). Identificador filtrable; se muestra en la card.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weightKg?: number | null;
 
   @ApiPropertyOptional({
     example: 'ALL',

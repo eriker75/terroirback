@@ -15,6 +15,7 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
+import { ProductProfitabilityQueryDto } from './dto/product-profitability-query.dto';
 import { Auth } from '../users/decorators/auth.decorators';
 import { GetUser } from '../users/decorators/get-user.decorator';
 import { ValidRoles } from '../users/interfaces';
@@ -51,6 +52,22 @@ export class OrdersController {
   @ApiResponse({ status: 200, description: 'Array de {orderId, latitude, longitude, ...}' })
   getOrderLocations() {
     return this.ordersService.getOrderLocations();
+  }
+
+  @Get('finance-analytics')
+  @Auth(ValidRoles.admin)
+  @ApiOperation({ summary: '[Admin] Finanzas por período: ingresos, COGS, utilidad y margen' })
+  @ApiResponse({ status: 200, description: 'Array de {label, ingresos, costos, utilidad, margen}' })
+  getFinanceAnalytics(@Query() dto: OrderAnalyticsQueryDto) {
+    return this.ordersService.getFinanceAnalytics(dto);
+  }
+
+  @Get('product-profitability')
+  @Auth(ValidRoles.admin)
+  @ApiOperation({ summary: '[Admin] Rentabilidad por producto (ingresos, COGS, utilidad, margen, markup)' })
+  @ApiResponse({ status: 200, description: 'Array por producto, ordenado por utilidad desc' })
+  getProductProfitability(@Query() query: ProductProfitabilityQueryDto) {
+    return this.ordersService.getProductProfitability(query);
   }
 
   @Get()

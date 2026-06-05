@@ -18,7 +18,10 @@ export class CartService {
     items: {
       // attributes + category permiten que la web mapee el producto completo
       // (badges de tueste/origen/categoría) al sincronizar el carrito.
-      include: { product: { include: { attributes: true, category: true } } },
+      // `cost` se omite SIEMPRE: el carrito es de cara al cliente y el costo es admin-only.
+      include: {
+        product: { include: { attributes: true, category: true }, omit: { cost: true } },
+      },
     },
   } as const;
 

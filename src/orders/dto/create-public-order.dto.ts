@@ -18,7 +18,7 @@ export class CreatePublicOrderItemDto {
   @IsString()
   productId: string;
 
-  @ApiProperty({ example: 2 })
+  @ApiProperty({ example: 2, description: 'Cantidad de unidades (bolsas)' })
   @IsInt()
   @Min(1)
   quantity: number;

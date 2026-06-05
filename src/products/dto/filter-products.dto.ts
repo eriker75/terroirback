@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsNumber,
@@ -82,6 +83,22 @@ export class FilterProductsDto extends PaginationDto {
   @IsOptional()
   @IsString()
   origin?: string;
+
+  @ApiPropertyOptional({
+    description: 'Tamaños de bolsa en kg a incluir (coincidencia exacta múltiple). Ej: ?weights=0.25,1',
+    example: '0.25,1',
+    type: String,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number).filter((n) => Number.isFinite(n));
+    if (typeof value === 'string')
+      return value.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n));
+    return undefined;
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  weights?: number[];
 
   @ApiPropertyOptional({ description: 'Slug de la etiqueta', example: 'destacados' })
   @IsOptional()

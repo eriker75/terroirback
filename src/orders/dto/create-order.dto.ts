@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -17,9 +18,9 @@ export class CreateOrderItemDto {
   @IsString()
   productId: string;
 
-  @ApiProperty({ example: 2 })
-  @IsNumber()
-  @IsPositive()
+  @ApiProperty({ example: 2, description: 'Cantidad de unidades (bolsas)' })
+  @IsInt()
+  @Min(1)
   quantity: number;
 
   @ApiProperty({ example: 45.99 })

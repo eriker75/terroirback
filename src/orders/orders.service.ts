@@ -9,6 +9,7 @@ import { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
+import { ProductProfitabilityQueryDto } from './dto/product-profitability-query.dto';
 import { PrismaService } from '../database/database.service';
 import { BcvService } from '../bcv/bcv.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
@@ -26,20 +27,17 @@ function pointsForUnit(price: Prisma.Decimal, pointsEarned: number | null): numb
   return Math.floor(Number(price) * DEFAULT_POINTS_PER_USD);
 }
 
-// Precio unitario que se cobra. Hoy el modelo es simple: precio de oferta
-// (`offerPrice`) si está definido y es menor que `price`; si no, `price`. Aplica a
-// todos. El precio mayorista por lotes (B2B) está DIFERIDO: si en el futuro un
-// producto define `wholesalePrice`, un comprador B2B lo paga (rama lista abajo).
-// SIEMPRE se resuelve en el servidor: el cliente nunca envía precios.
-function unitPriceForTier(
-  price: Prisma.Decimal,
-  offerPrice: Prisma.Decimal | null,
-  wholesalePrice: Prisma.Decimal | null,
-  accountType: string,
-): Prisma.Decimal {
-  if (accountType === 'B2B' && wholesalePrice != null) return wholesalePrice;
-  if (offerPrice != null && offerPrice.lessThan(price)) return offerPrice;
-  return price;
+// Precio unitario que se cobra (snapshot): `offerPrice` si está definido y es menor que
+// `price`; si no, `price`. SIEMPRE se resuelve en el servidor: el cliente nunca envía
+// precios. Hay un único precio (la segmentación B2B/B2C solo afecta la visibilidad).
+function effectiveUnitPrice(product: {
+  price: Prisma.Decimal;
+  offerPrice: Prisma.Decimal | null;
+}): Prisma.Decimal {
+  if (product.offerPrice != null && product.offerPrice.lessThan(product.price)) {
+    return product.offerPrice;
+  }
+  return product.price;
 }
 
 // Ventana (días) durante la cual el seguimiento público de un pedido COMPLETED
@@ -67,14 +65,33 @@ export class OrdersService {
     contact: true,
     payment: true,
     items: {
+      // `costSnapshot` (item) y `product.cost` son admin-only: se omiten de TODA
+      // respuesta de orden (la sirven tanto el admin como el dueño). Las finanzas
+      // leen el costo con queries dedicadas (getFinanceAnalytics / getProductProfitability).
+      omit: { costSnapshot: true },
       include: {
-        product: true,
+        product: { omit: { cost: true } },
       },
     },
   } as const;
 
-  create(createOrderDto: CreateOrderDto) {
+  // Mapa productId → costo actual, para snapshotear costSnapshot en órdenes creadas
+  // o editadas manualmente por el admin (el checkout snapshotea dentro de su propia tx).
+  private async costByProductMap(
+    productIds: string[],
+  ): Promise<Map<string, Prisma.Decimal | null>> {
+    const ids = [...new Set(productIds)];
+    if (!ids.length) return new Map();
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, cost: true },
+    });
+    return new Map(products.map((p) => [p.id, p.cost]));
+  }
+
+  async create(createOrderDto: CreateOrderDto) {
     const { items, ...orderData } = createOrderDto;
+    const costByProduct = await this.costByProductMap(items.map((i) => i.productId));
 
     return this.prisma.order.create({
       data: {
@@ -84,6 +101,7 @@ export class OrdersService {
             productId: item.productId,
             quantity: item.quantity,
             price: item.price,
+            costSnapshot: costByProduct.get(item.productId) ?? null,
           })),
         },
       },
@@ -147,7 +165,7 @@ export class OrdersService {
           name: true,
           price: true,
           offerPrice: true,
-          wholesalePrice: true,
+          cost: true,
           visibility: true,
           stock: true,
           pointsEarned: true,
@@ -294,14 +312,17 @@ export class OrdersService {
       // }
 
       // 5) Construir los items con el precio del servidor y calcular el subtotal.
-      //    El precio unitario depende del segmento: un B2B paga el wholesalePrice
-      //    (si existe). Se congela en el OrderItem (snapshot del momento de compra).
+      //    El precio (oferta si aplica) se congela en el OrderItem (snapshot), junto
+      //    con el costo, al momento de la compra.
       const orderItems = items.map((item) => {
         const product = productById.get(item.productId)!;
         return {
           productId: item.productId,
           quantity: item.quantity,
-          price: unitPriceForTier(product.price, product.offerPrice, product.wholesalePrice, buyerAccountType),
+          price: effectiveUnitPrice(product),
+          // Snapshot del costo (admin-only) para el cálculo de utilidades. null si el
+          // producto aún no tiene costo cargado.
+          costSnapshot: product.cost,
         };
       });
 
@@ -617,6 +638,9 @@ export class OrdersService {
     const current = await this.findOne(id); // 404 si no existe; trae items + status
 
     const { items, ...orderData } = updateOrderDto;
+    const costByProduct = items
+      ? await this.costByProductMap(items.map((i) => i.productId))
+      : new Map<string, Prisma.Decimal | null>();
     const nextStatus = orderData.status as OrderStatus | undefined;
     const isCancelling =
       nextStatus === OrderStatus.CANCELLED && current.status !== OrderStatus.CANCELLED;
@@ -673,6 +697,7 @@ export class OrdersService {
                   productId: item.productId,
                   quantity: item.quantity,
                   price: item.price,
+                  costSnapshot: costByProduct.get(item.productId) ?? null,
                 })),
               }
             : undefined,
@@ -788,5 +813,172 @@ export class OrdersService {
       const rows = orders.filter((o) => (o.createdAt.getMonth() < 6 ? 0 : 1) === h);
       return { label: `H${h + 1}`, ventas: rows.length, ingresos: sum(rows) };
     });
+  }
+
+  // ── Finanzas (margen bruto) ────────────────────────────────────────────────
+  // Ingresos = order.total (ya neto del descuento de cupón). COGS = Σ(costSnapshot×qty)
+  // sobre items con costSnapshot != null; los items históricos sin costo se EXCLUYEN
+  // del COGS (su utilidad quedaría inflada). Utilidad = ingresos − COGS.
+  // Reusa el mismo bucketing por período que getAnalytics.
+  async getFinanceAnalytics(dto: OrderAnalyticsQueryDto) {
+    const now = new Date().getFullYear();
+    const { period, year = now, yearFrom = 2020, yearTo = now } = dto;
+
+    const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+    type FinanceRow = {
+      createdAt: Date;
+      total: Prisma.Decimal;
+      items: { quantity: number; costSnapshot: Prisma.Decimal | null }[];
+    };
+    const num = (d: Prisma.Decimal | null) => (d ? parseFloat(d.toString()) : 0);
+    const cogsOf = (rows: FinanceRow[]) =>
+      rows.reduce(
+        (acc, r) =>
+          acc +
+          r.items.reduce(
+            (s, it) => s + (it.costSnapshot ? num(it.costSnapshot) * it.quantity : 0),
+            0,
+          ),
+        0,
+      );
+    const point = (label: string, rows: FinanceRow[]) => {
+      const ingresos = rows.reduce((a, r) => a + num(r.total), 0);
+      const costos = cogsOf(rows);
+      const utilidad = ingresos - costos;
+      const margen = ingresos > 0 ? (utilidad / ingresos) * 100 : 0;
+      return { label, ingresos, costos, utilidad, margen };
+    };
+
+    const fetchRows = (gte: Date, lte: Date): Promise<FinanceRow[]> =>
+      this.prisma.order.findMany({
+        where: { status: { not: OrderStatus.CANCELLED }, createdAt: { gte, lte } },
+        select: {
+          createdAt: true,
+          total: true,
+          items: { select: { quantity: true, costSnapshot: true } },
+        },
+      });
+
+    if (period === AnalyticsPeriod.DAILY) {
+      const monthIdx = (dto.month ?? new Date().getMonth() + 1) - 1;
+      const start = new Date(year, monthIdx, 1);
+      const end = new Date(year, monthIdx + 1, 0, 23, 59, 59);
+      const rows = await fetchRows(start, end);
+      return Array.from({ length: end.getDate() }, (_, i) => {
+        const day = i + 1;
+        return point(String(day).padStart(2, '0'), rows.filter((o) => o.createdAt.getDate() === day));
+      });
+    }
+
+    if (period === AnalyticsPeriod.ANNUAL) {
+      const rows = await fetchRows(new Date(yearFrom, 0, 1), new Date(yearTo, 11, 31, 23, 59, 59));
+      return Array.from({ length: yearTo - yearFrom + 1 }, (_, i) => {
+        const y = yearFrom + i;
+        return point(String(y), rows.filter((o) => o.createdAt.getFullYear() === y));
+      });
+    }
+
+    const rows = await fetchRows(new Date(year, 0, 1), new Date(year, 11, 31, 23, 59, 59));
+
+    if (period === AnalyticsPeriod.MONTHLY) {
+      return MONTHS.map((label, i) => point(label, rows.filter((o) => o.createdAt.getMonth() === i)));
+    }
+    if (period === AnalyticsPeriod.QUARTERLY) {
+      return [0, 1, 2, 3].map((q) =>
+        point(`Q${q + 1}`, rows.filter((o) => Math.floor(o.createdAt.getMonth() / 3) === q)),
+      );
+    }
+    // SEMIANNUAL
+    return [0, 1].map((h) =>
+      point(`H${h + 1}`, rows.filter((o) => (o.createdAt.getMonth() < 6 ? 0 : 1) === h)),
+    );
+  }
+
+  // Rentabilidad por producto en un rango de fechas. El descuento de cupón (a nivel
+  // orden) se reparte PROPORCIONALMENTE entre los items según su participación en el
+  // ingreso de la orden (aproximación documentada; no atribuye cupones restringidos a
+  // productos con exactitud). Items con costSnapshot null se excluyen del COGS y marcan
+  // `hasMissingCost` para no inflar el margen silenciosamente.
+  async getProductProfitability(query: ProductProfitabilityQueryDto) {
+    const createdAt =
+      query.dateFrom || query.dateTo
+        ? {
+            ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+            ...(query.dateTo
+              ? { lte: new Date(new Date(query.dateTo).setHours(23, 59, 59, 999)) }
+              : {}),
+          }
+        : undefined;
+
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        order: { status: { not: OrderStatus.CANCELLED }, ...(createdAt ? { createdAt } : {}) },
+      },
+      select: {
+        productId: true,
+        quantity: true,
+        price: true,
+        costSnapshot: true,
+        product: { select: { name: true } },
+        order: { select: { id: true, discount: true } },
+      },
+    });
+
+    const n = (d: Prisma.Decimal | null) => (d ? parseFloat(d.toString()) : 0);
+
+    // 1) Subtotal por orden para repartir su descuento proporcionalmente.
+    const orderSubtotal = new Map<string, number>();
+    for (const it of items) {
+      const line = n(it.price) * it.quantity;
+      orderSubtotal.set(it.order.id, (orderSubtotal.get(it.order.id) ?? 0) + line);
+    }
+
+    // 2) Agregación por producto.
+    type Agg = {
+      productId: string;
+      name: string;
+      qtySold: number;
+      ingresos: number;
+      costos: number;
+      hasMissingCost: boolean;
+    };
+    const byProduct = new Map<string, Agg>();
+    for (const it of items) {
+      const qty = it.quantity;
+      const line = n(it.price) * qty;
+      const sub = orderSubtotal.get(it.order.id) ?? 0;
+      const allocatedDiscount = sub > 0 ? n(it.order.discount) * (line / sub) : 0;
+      const netRevenue = line - allocatedDiscount;
+      const hasCost = it.costSnapshot != null;
+      const lineCost = hasCost ? n(it.costSnapshot) * qty : 0;
+
+      const cur =
+        byProduct.get(it.productId) ??
+        ({
+          productId: it.productId,
+          name: it.product?.name ?? '—',
+          qtySold: 0,
+          ingresos: 0,
+          costos: 0,
+          hasMissingCost: false,
+        } as Agg);
+      cur.qtySold += qty;
+      cur.ingresos += netRevenue;
+      cur.costos += lineCost;
+      cur.hasMissingCost = cur.hasMissingCost || !hasCost;
+      byProduct.set(it.productId, cur);
+    }
+
+    const rows = [...byProduct.values()]
+      .map((r) => {
+        const utilidad = r.ingresos - r.costos;
+        const margen = r.ingresos > 0 ? (utilidad / r.ingresos) * 100 : 0;
+        const markup = r.costos > 0 ? (utilidad / r.costos) * 100 : null;
+        return { ...r, utilidad, margen, markup };
+      })
+      .sort((a, b) => b.utilidad - a.utilidad);
+
+    return query.limit ? rows.slice(0, query.limit) : rows;
   }
 }
