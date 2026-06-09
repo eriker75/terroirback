@@ -5,7 +5,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { AdjustStockDto, StockOperation } from './dto/adjust-stock.dto';
 import { FilterProductsDto, ProductSort } from './dto/filter-products.dto';
 import { PrismaService } from '../database/database.service';
-import { canAccessVisibility } from '../common/account.constants';
+import { buildOrderBy } from '../common/sort/build-order-by';
+import { canAccessVisibility, PUBLIC_VISIBILITIES } from '../common/account.constants';
 import { BulkImportDto } from '../common/dto/bulk-import.dto';
 import {
   runBulkImport,
@@ -23,6 +24,20 @@ export type ProductViewer = { role?: string; accountType?: string } | null;
 // filtro acepta varias convenciones de nombre para ser tolerante con los datos.
 const ROAST_ATTR_NAMES = ['roast', 'tueste', 'tostado'];
 const ORIGIN_ATTR_NAMES = ['origin', 'origen', 'procedencia'];
+
+// Columnas ordenables desde la tabla del admin (cabeceras clickeables). La clave
+// es la que envía el front (?sortBy=); el valor traduce a un orderBy de Prisma.
+const PRODUCT_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.ProductOrderByWithRelationInput
+> = {
+  name: (dir) => ({ name: dir }),
+  category: (dir) => ({ category: { name: dir } }),
+  price: (dir) => ({ price: dir }),
+  stock: (dir) => ({ stock: dir }),
+  points: (dir) => ({ pointsPrice: dir }),
+  createdAt: (dir) => ({ createdAt: dir }),
+};
 
 @Injectable()
 export class ProductsService {
@@ -84,8 +99,20 @@ export class ProductsService {
 
   async findAll(filters: FilterProductsDto, viewer?: ProductViewer) {
     const { limit, offset } = filters;
-    const where = this.buildWhere(filters, viewer);
-    const orderBy = this.buildOrderBy(filters.sort);
+    // Búsqueda por texto (q): se resuelve aparte para poder ignorar acentos con
+    // `unaccent` (Postgres) y se inyecta como `id IN (...)` en el WHERE, de modo
+    // que se combine con el resto de filtros y la paginación sin duplicar lógica.
+    const searchIds = filters.q ? await this.searchProductIds(filters.q) : undefined;
+    const where = this.buildWhere(filters, viewer, searchIds);
+    // El admin ordena por columna (sortBy/order); el catálogo público usa el
+    // enum `sort`. Si llega sortBy se prioriza; si no, se aplica el orden por
+    // defecto derivado de `sort`.
+    const orderBy = buildOrderBy(
+      filters.sortBy,
+      filters.order,
+      PRODUCT_SORT_COLUMNS,
+      this.buildOrderBy(filters.sort),
+    );
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
@@ -101,10 +128,31 @@ export class ProductsService {
     return { data, total, limit, offset };
   }
 
+  // IDs de productos cuyo nombre o descripción contienen `q` ignorando MAYÚSCULAS
+  // y ACENTOS ("etiopia" encuentra "Etiopía"). Se sanea el término: se recorta, se
+  // colapsan espacios y se quitan los comodines de LIKE (% _ \) para que no alteren
+  // la búsqueda. Usa la extensión `unaccent` (ver sql/enable_unaccent.sql). El
+  // término viaja como parámetro ($queryRaw), así que no hay inyección SQL.
+  private async searchProductIds(q: string): Promise<string[]> {
+    const cleaned = q.trim().replace(/\s+/g, ' ').replace(/[%_\\]/g, '');
+    if (!cleaned) return [];
+    const term = `%${cleaned}%`;
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM products
+      WHERE unaccent(lower(name)) LIKE unaccent(lower(${term}))
+         OR unaccent(lower(coalesce(description, ''))) LIKE unaccent(lower(${term}))
+    `;
+    return rows.map((r) => r.id);
+  }
+
   // Traduce los filtros del catálogo a un WHERE de Prisma. Cada criterio se
   // acumula en un AND para que se combinen sin pisarse entre sí (p. ej. tueste
   // y origen, que ambos consultan la relación `attributes`).
-  private buildWhere(filters: FilterProductsDto, viewer?: ProductViewer): Prisma.ProductWhereInput {
+  private buildWhere(
+    filters: FilterProductsDto,
+    viewer?: ProductViewer,
+    searchIds?: string[],
+  ): Prisma.ProductWhereInput {
     const AND: Prisma.ProductWhereInput[] = [];
 
     // Visibilidad por segmento (no aplica al admin, que ve todo). Se omite cuando
@@ -112,13 +160,10 @@ export class ProductsService {
     const visibility = this.visibilityWhere(viewer);
     if (visibility) AND.push(visibility);
 
+    // Búsqueda por texto: `searchIds` son los IDs que casaron por `unaccent` LIKE
+    // (insensible a mayúsculas y acentos). Si no hubo coincidencias → lista vacía.
     if (filters.q) {
-      AND.push({
-        OR: [
-          { name: { contains: filters.q, mode: 'insensitive' } },
-          { description: { contains: filters.q, mode: 'insensitive' } },
-        ],
-      });
+      AND.push({ id: { in: searchIds ?? [] } });
     }
 
     if (filters.categoryId) {
@@ -202,12 +247,14 @@ export class ProductsService {
   //   · undefined          → llamada interna de confianza (sin filtro).
   //   · role === 'admin'   → ve todo (sin filtro).
   //   · accountType B2B    → ve todo (los productos B2C son públicos) → sin filtro.
-  //   · resto (B2C/invitado) → todo MENOS los WHOLESALE_ONLY.
+  //   · resto (B2C/invitado) → SOLO las visibilidades públicas (whitelist). Se usa
+  //     `in` y no `not: 'WHOLESALE_ONLY'` para fallar cerrado: cualquier valor de
+  //     `visibility` inesperado queda oculto en vez de filtrarse al público.
   private visibilityWhere(viewer?: ProductViewer): Prisma.ProductWhereInput | null {
     if (viewer === undefined) return null;
     if (viewer?.role === 'admin') return null;
     if (viewer?.accountType === 'B2B') return null;
-    return { visibility: { not: 'WHOLESALE_ONLY' } };
+    return { visibility: { in: [...PUBLIC_VISIBILITIES] } };
   }
 
   async findOne(id: string, viewer?: ProductViewer) {

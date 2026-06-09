@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ContactBlockType, ContactMessageStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { CreateContactMessageDto } from './dto/create-contact-message.dto';
 import { UpdateContactMessageDto } from './dto/update-contact-message.dto';
 import { QueryContactMessageDto } from './dto/query-contact-message.dto';
@@ -26,6 +27,20 @@ import { compactRow } from '../common/bulk/compact-row';
 // Anti-inundación: ventana deslizante en memoria por IP.
 const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
 const RATE_MAX_PER_WINDOW = 5; // máximo de mensajes por IP en la ventana
+
+// Columnas ordenables desde el directorio de contactos del admin (cabeceras
+// clickeables). #Órdenes y #Mensajes ordenan por el conteo de la relación.
+const CONTACT_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.ContactOrderByWithRelationInput
+> = {
+  name: (dir) => ({ firstName: dir }),
+  email: (dir) => ({ email: dir }),
+  phone: (dir) => ({ phone: dir }),
+  orders: (dir) => ({ orders: { _count: dir } }),
+  messages: (dir) => ({ messages: { _count: dir } }),
+  createdAt: (dir) => ({ createdAt: dir }),
+};
 
 @Injectable()
 export class ContactService {
@@ -197,7 +212,7 @@ export class ContactService {
   // Lista paginada de todos los Contact con su usuario (si lo hay) y la(s)
   // fuente(s) de las que provienen: registro web, compra y/o formulario de
   // contacto. Nunca expone la contraseña del usuario asociado.
-  async findAllContacts({ limit, offset, search }: QueryContactDto) {
+  async findAllContacts({ limit, offset, search, sortBy, order }: QueryContactDto) {
     const where: Prisma.ContactWhereInput = {};
 
     if (search) {
@@ -208,6 +223,10 @@ export class ContactService {
       ];
     }
 
+    const orderBy = buildOrderBy(sortBy, order, CONTACT_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.contact.findMany({
         where,
@@ -217,7 +236,7 @@ export class ContactService {
           },
           _count: { select: { orders: true, messages: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationStatus } from '@prisma/client';
+import { NotificationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
 import { BulkImportDto } from '../common/dto/bulk-import.dto';
@@ -13,6 +14,18 @@ import {
 import { compactRow } from '../common/bulk/compact-row';
 import { ExpoPushService, PushPayload } from './push/expo-push.service';
 import { PushTokensService } from './push-tokens.service';
+
+// Columnas ordenables desde la tabla de notificaciones del admin (cabeceras clickeables).
+const NOTIFICATION_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.NotificationOrderByWithRelationInput
+> = {
+  title: (dir) => ({ title: dir }),
+  audience: (dir) => ({ audience: dir }),
+  status: (dir) => ({ status: dir }),
+  scheduledAt: (dir) => ({ scheduledAt: dir }),
+  sentAt: (dir) => ({ sentAt: dir }),
+};
 
 @Injectable()
 export class NotificationsService {
@@ -34,10 +47,14 @@ export class NotificationsService {
     });
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  async findAll({ limit, offset, sortBy, order }: PaginationDto) {
+    const orderBy = buildOrderBy(sortBy, order, NOTIFICATION_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.notification.findMany({
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

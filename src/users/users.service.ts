@@ -33,6 +33,22 @@ import { AppleLoginDto } from './dto/apple-login.dto';
 /** Duración del refresh token: 30 días en ms */
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+// Columnas ordenables desde la tabla de clientes del admin (cabeceras clickeables).
+// Mapea la clave pública que envía el front a la expresión SQL por la que se
+// ordena. Incluye dos agregados sobre los pedidos NO cancelados del cliente:
+//   · orders → nº de pedidos        · spent → total gastado (Σ order.total)
+// Se ordena con SQL crudo porque Prisma no permite `orderBy` sobre la suma de un
+// campo de una relación. Las claves son fijas (whitelist) → seguras para SQL.
+const USER_SORT_SQL: Record<string, Prisma.Sql> = {
+  name: Prisma.sql`u."firstName"`,
+  email: Prisma.sql`u.email`,
+  phone: Prisma.sql`u.phone`,
+  status: Prisma.sql`u.status`,
+  createdAt: Prisma.sql`u."createdAt"`,
+  orders: Prisma.sql`"orderCount"`,
+  spent: Prisma.sql`"totalSpent"`,
+};
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -549,32 +565,67 @@ export class UsersService {
     role,
     status,
     accountType,
+    sortBy,
+    order,
   }: UserQueryDto) {
-    // Soft delete: nunca listamos clientes marcados como borrados.
-    const where: Prisma.UserWhereInput = { deletedAt: null };
-
-    if (role) where.role = role;
-    if (status) where.status = status;
-    if (accountType) where.accountType = accountType;
-
+    // Filtros del listado, como fragmentos SQL parametrizados (seguros ante
+    // inyección). Soft delete: nunca listamos clientes con deletedAt != NULL.
+    const conditions: Prisma.Sql[] = [Prisma.sql`u."deletedAt" IS NULL`];
+    if (role) conditions.push(Prisma.sql`u.role = ${role}`);
+    if (status) conditions.push(Prisma.sql`u.status = ${status}`);
+    if (accountType) conditions.push(Prisma.sql`u."accountType" = ${accountType}`);
     if (search) {
-      where.OR = [
-        { email: { contains: search, mode: 'insensitive' } },
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-      ];
+      const like = `%${search}%`;
+      conditions.push(
+        Prisma.sql`(u.email ILIKE ${like} OR u."firstName" ILIKE ${like} OR u."lastName" ILIKE ${like})`,
+      );
     }
+    const where = Prisma.join(conditions, ' AND ');
 
-    const [data, total] = await this.prisma.$transaction([
-      this.prisma.user.findMany({
-        where,
-        select: this.publicUserSelect,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      this.prisma.user.count({ where }),
-    ]);
+    // Orden: columna por whitelist (USER_SORT_SQL) + dirección validada. El total
+    // gastado y el nº de pedidos se agregan con un LEFT JOIN sobre pedidos NO
+    // cancelados (mismo criterio que Finanzas), por lo que los clientes sin
+    // pedidos también aparecen (con 0). Se ordena y pagina en la BD.
+    const sortExpr = USER_SORT_SQL[sortBy ?? ''] ?? Prisma.sql`u."createdAt"`;
+    const dir = order === 'asc' ? Prisma.raw('ASC') : Prisma.raw('DESC');
+
+    const ranked = await this.prisma.$queryRaw<
+      { id: string; orderCount: number; totalSpent: string }[]
+    >(Prisma.sql`
+      SELECT u.id,
+             (COUNT(o.id) FILTER (WHERE o.status <> 'CANCELLED'))::int AS "orderCount",
+             (COALESCE(SUM(o.total) FILTER (WHERE o.status <> 'CANCELLED'), 0))::text AS "totalSpent"
+      FROM users u
+      LEFT JOIN orders o ON o."userId" = u.id
+      WHERE ${where}
+      GROUP BY u."userId"
+      ORDER BY ${sortExpr} ${dir}, u."createdAt" DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    const totalRows = await this.prisma.$queryRaw<{ count: number }[]>(
+      Prisma.sql`SELECT COUNT(*)::int AS count FROM users u WHERE ${where}`,
+    );
+    const total = totalRows[0]?.count ?? 0;
+
+    // Hidratamos los usuarios completos (sin password, con direcciones) vía Prisma
+    // y reaplicamos el orden de la consulta agregada, adjuntando los agregados.
+    const ids = ranked.map((r) => r.id);
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids } },
+          select: this.publicUserSelect,
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+
+    const data = ranked.flatMap((r) => {
+      const user = byId.get(r.id);
+      return user
+        ? [{ ...user, orderCount: r.orderCount, totalSpent: r.totalSpent }]
+        : [];
+    });
+
     return { data, total, limit, offset };
   }
 

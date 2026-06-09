@@ -1,14 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { BulkImportDto } from '../common/dto/bulk-import.dto';
 import {
   runBulkImport,
   validateAgainstDto,
   type BulkResult,
 } from '../common/bulk/bulk-import.helper';
+
+// Columnas ordenables desde la tabla de cupones del admin (cabeceras clickeables).
+const COUPON_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.CouponOrderByWithRelationInput
+> = {
+  code: (dir) => ({ code: dir }),
+  type: (dir) => ({ discountType: dir }),
+  amount: (dir) => ({ amount: dir }),
+  active: (dir) => ({ isActive: dir }),
+  expiryDate: (dir) => ({ expiryDate: dir }),
+  usage: (dir) => ({ usageCount: dir }),
+};
 
 @Injectable()
 export class CouponsService {
@@ -41,11 +56,15 @@ export class CouponsService {
     });
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  async findAll({ limit, offset, sortBy, order }: PaginationDto) {
+    const orderBy = buildOrderBy(sortBy, order, COUPON_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.coupon.findMany({
         include: this.couponInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

@@ -8,6 +8,7 @@ import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { BulkImportDto } from '../common/dto/bulk-import.dto';
 import {
   runBulkImport,
@@ -20,6 +21,17 @@ import {
 const TAG_INCLUDE = {
   _count: { select: { productTags: true } },
 } satisfies Prisma.TagInclude;
+
+// Columnas ordenables desde la tabla de etiquetas del admin (cabeceras clickeables).
+// "Productos" ordena por el conteo de productos que usan la etiqueta.
+const TAG_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.TagOrderByWithRelationInput
+> = {
+  name: (dir) => ({ name: dir }),
+  slug: (dir) => ({ slug: dir }),
+  products: (dir) => ({ productTags: { _count: dir } }),
+};
 
 @Injectable()
 export class TagsService {
@@ -36,11 +48,13 @@ export class TagsService {
     }
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  async findAll({ limit, offset, sortBy, order }: PaginationDto) {
+    const orderBy = buildOrderBy(sortBy, order, TAG_SORT_COLUMNS, { name: 'asc' });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.tag.findMany({
         include: TAG_INCLUDE,
-        orderBy: { name: 'asc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

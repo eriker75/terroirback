@@ -1,14 +1,26 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { BulkImportDto } from '../common/dto/bulk-import.dto';
 import {
   runBulkImport,
   validateAgainstDto,
   type BulkResult,
 } from '../common/bulk/bulk-import.helper';
+
+// Columnas ordenables desde la tabla de banners del admin (cabeceras clickeables).
+const BANNER_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.BannerOrderByWithRelationInput
+> = {
+  title: (dir) => ({ title: dir }),
+  button: (dir) => ({ buttonText: dir }),
+  createdAt: (dir) => ({ createdAt: dir }),
+};
 
 @Injectable()
 export class BannersService {
@@ -20,10 +32,14 @@ export class BannersService {
     });
   }
 
-  async findAll({ limit, offset }: PaginationDto) {
+  async findAll({ limit, offset, sortBy, order }: PaginationDto) {
+    const orderBy = buildOrderBy(sortBy, order, BANNER_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.banner.findMany({
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

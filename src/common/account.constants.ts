@@ -9,16 +9,23 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number];
 export const PRODUCT_VISIBILITIES = ['ALL', 'RETAIL_ONLY', 'WHOLESALE_ONLY'] as const;
 export type ProductVisibility = (typeof PRODUCT_VISIBILITIES)[number];
 
+// Visibilidades que cualquiera puede ver/comprar (los productos B2C son SIEMPRE
+// públicos). Es la lista blanca de lo público: todo lo que NO esté aquí queda
+// restringido a B2B. Se prefiere esta forma (whitelist) a "todo menos
+// WHOLESALE_ONLY" para fallar cerrado — un valor de datos inesperado (p. ej.
+// legacy 'B2B'/'B2C') nunca debe filtrar un producto mayorista al público.
+export const PUBLIC_VISIBILITIES: readonly string[] = ['ALL', 'RETAIL_ONLY'];
+
 // ¿Puede un comprador de este `accountType` ver/comprar un producto con esta
 // `visibility`? El admin se gestiona aparte (siempre ve todo).
 //
-// Regla: los productos B2C (ALL y RETAIL_ONLY) son SIEMPRE públicos — los ve
-// cualquiera, incluido un mayorista. Solo WHOLESALE_ONLY se restringe (exclusivo
-// de B2B). Un valor desconocido se trata como público.
+// Regla: los productos públicos (PUBLIC_VISIBILITIES) los ve cualquiera, incluido
+// un mayorista. Cualquier otra visibilidad (WHOLESALE_ONLY o un valor no
+// reconocido) queda restringida a B2B.
 export function canAccessVisibility(
   accountType: string | null | undefined,
   visibility: string | null | undefined,
 ): boolean {
-  if (visibility === 'WHOLESALE_ONLY') return accountType === 'B2B';
-  return true; // ALL, RETAIL_ONLY o desconocido → público
+  if (PUBLIC_VISIBILITIES.includes(visibility ?? '')) return true;
+  return accountType === 'B2B';
 }

@@ -1,8 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { QueryPaymentDto } from './dto/query-payment.dto';
+
+// Columnas ordenables desde la tabla de pagos del admin (cabeceras clickeables).
+const PAYMENT_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.PaymentOrderByWithRelationInput
+> = {
+  method: (dir) => ({ method: dir }),
+  status: (dir) => ({ status: dir }),
+  amount: (dir) => ({ amount: dir }),
+  reference: (dir) => ({ reference: dir }),
+  payer: (dir) => ({ payerName: dir }),
+  bank: (dir) => ({ bank: dir }),
+  customer: (dir) => ({ order: { user: { email: dir } } }),
+  createdAt: (dir) => ({ createdAt: dir }),
+};
 
 @Injectable()
 export class PaymentsService {
@@ -12,7 +28,7 @@ export class PaymentsService {
   ) {}
 
   // Listado de pagos (admin) con filtro opcional por estado y paginación.
-  async findAll({ limit, offset, status, method, bank, search, dateFrom, dateTo }: QueryPaymentDto) {
+  async findAll({ limit, offset, status, method, bank, search, dateFrom, dateTo, sortBy, order }: QueryPaymentDto) {
     const where: Prisma.PaymentWhereInput = {};
     if (status) where.status = status;
     if (method) where.method = method;
@@ -31,6 +47,10 @@ export class PaymentsService {
         { order: { user: { email: { contains: search, mode: 'insensitive' } } } },
       ];
     }
+    const orderBy = buildOrderBy(sortBy, order, PAYMENT_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.payment.findMany({
         where,
@@ -44,7 +64,7 @@ export class PaymentsService {
             },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),

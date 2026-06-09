@@ -11,6 +11,7 @@ import { OrderQueryDto } from './dto/order-query.dto';
 import { AnalyticsPeriod, OrderAnalyticsQueryDto } from './dto/order-analytics-query.dto';
 import { ProductProfitabilityQueryDto } from './dto/product-profitability-query.dto';
 import { PrismaService } from '../database/database.service';
+import { buildOrderBy } from '../common/sort/build-order-by';
 import { BcvService } from '../bcv/bcv.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { UsersService } from '../users/users.service';
@@ -44,6 +45,18 @@ function effectiveUnitPrice(product: {
 // sigue siendo visible para cualquiera con el enlace. Pasado ese tiempo, sólo el
 // dueño autenticado o un admin pueden verlo.
 const TRACKING_PUBLIC_WINDOW_DAYS = 7;
+
+// Columnas ordenables desde la tabla de órdenes del admin (cabeceras clickeables).
+const ORDER_SORT_COLUMNS: Record<
+  string,
+  (dir: Prisma.SortOrder) => Prisma.OrderOrderByWithRelationInput
+> = {
+  customer: (dir) => ({ user: { firstName: dir } }),
+  createdAt: (dir) => ({ createdAt: dir }),
+  items: (dir) => ({ items: { _count: dir } }),
+  total: (dir) => ({ total: dir }),
+  status: (dir) => ({ status: dir }),
+};
 
 @Injectable()
 export class OrdersService {
@@ -464,7 +477,7 @@ export class OrdersService {
     });
   }
 
-  async findAll({ limit, offset, status, dateFrom, dateTo, minTotal, maxTotal, search }: OrderQueryDto) {
+  async findAll({ limit, offset, status, dateFrom, dateTo, minTotal, maxTotal, search, sortBy, order }: OrderQueryDto) {
     const where: Prisma.OrderWhereInput = {};
 
     if (status) where.status = status;
@@ -493,11 +506,15 @@ export class OrdersService {
       };
     }
 
+    const orderBy = buildOrderBy(sortBy, order, ORDER_SORT_COLUMNS, {
+      createdAt: 'desc',
+    });
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
         where,
         include: this.orderInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         take: limit,
         skip: offset,
       }),
