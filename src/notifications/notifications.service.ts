@@ -74,16 +74,30 @@ export class NotificationsService {
     });
   }
 
-  // Despacha la notificación ahora: resuelve la audiencia → tokens activos,
-  // envía vía Expo, limpia los tokens muertos y persiste el resultado.
+  // Despacha la notificación ahora:
+  //   1) resuelve la audiencia → USUARIOS destinatarios,
+  //   2) materializa la entrega: una fila en notification_recipients por usuario
+  //      (idempotente; reenviar no duplica). Esto es el buzón in-app.
+  //   3) empuja push (Expo) a los dispositivos de esos usuarios (transporte),
+  //   4) marca la campaña como SENT con el alcance (nº de usuarios).
   async sendNow(id: string) {
     const notification = await this.findOne(id);
 
-    const tokens = await this.pushTokens.getTokensForAudience(
+    const userIds = await this.pushTokens.getUserIdsForAudience(
       notification.audience,
     );
 
-    const { sent } = await this.dispatch(tokens, {
+    // Entrega al buzón de cada usuario alcanzado (no duplica si ya existía).
+    if (userIds.length > 0) {
+      await this.prisma.notificationRecipient.createMany({
+        data: userIds.map((userId) => ({ notificationId: id, userId })),
+        skipDuplicates: true,
+      });
+    }
+
+    // Push a los dispositivos de esos usuarios (los que tengan tokens activos).
+    const tokens = await this.pushTokens.getEnabledTokensForUserIds(userIds);
+    await this.dispatch(tokens, {
       title: notification.title,
       body: notification.message,
       data: { type: 'campaign', notificationId: notification.id },
@@ -94,9 +108,70 @@ export class NotificationsService {
       data: {
         status: NotificationStatus.SENT,
         sentAt: new Date(),
-        sentCount: sent,
+        sentCount: userIds.length,
       },
     });
+  }
+
+  // ── Buzón por usuario (entradas de notification_recipients) ─────────────────
+
+  // Notificaciones recibidas por el usuario (su buzón), paginadas. Aplana la
+  // entrega + la campaña al shape que consume la app.
+  async listForUser(userId: string, { limit, offset }: PaginationDto) {
+    const [rows, total, unread] = await this.prisma.$transaction([
+      this.prisma.notificationRecipient.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        select: {
+          id: true,
+          read: true,
+          readAt: true,
+          createdAt: true,
+          notification: { select: { id: true, title: true, message: true } },
+        },
+      }),
+      this.prisma.notificationRecipient.count({ where: { userId } }),
+      this.prisma.notificationRecipient.count({
+        where: { userId, read: false },
+      }),
+    ]);
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      notificationId: r.notification.id,
+      title: r.notification.title,
+      body: r.notification.message,
+      read: r.read,
+      readAt: r.readAt,
+      createdAt: r.createdAt,
+    }));
+    return { data, total, unread, limit, offset };
+  }
+
+  async unreadCountForUser(userId: string) {
+    const unread = await this.prisma.notificationRecipient.count({
+      where: { userId, read: false },
+    });
+    return { unread };
+  }
+
+  // Marca una entrada del buzón como leída. Acotado al dueño (recipientId).
+  async markReadForUser(userId: string, recipientId: string) {
+    const { count } = await this.prisma.notificationRecipient.updateMany({
+      where: { id: recipientId, userId, read: false },
+      data: { read: true, readAt: new Date() },
+    });
+    return { updated: count };
+  }
+
+  async markAllReadForUser(userId: string) {
+    const { count } = await this.prisma.notificationRecipient.updateMany({
+      where: { userId, read: false },
+      data: { read: true, readAt: new Date() },
+    });
+    return { updated: count };
   }
 
   // Push de prueba a los propios dispositivos del usuario autenticado.

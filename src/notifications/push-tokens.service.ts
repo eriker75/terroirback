@@ -87,23 +87,39 @@ export class PushTokensService {
     return rows.map((r) => r.token);
   }
 
-  // Traduce una audiencia de campaña a la lista de tokens activos destinatarios.
-  async getTokensForAudience(
+  // Traduce una audiencia a la lista de USUARIOS destinatarios (activos, no
+  // borrados). Incluye usuarios SIN push: el buzón in-app es para todos los
+  // alcanzados, tengan o no dispositivos con notificaciones.
+  async getUserIdsForAudience(
     audience: NotificationAudience,
   ): Promise<string[]> {
-    const rows = await this.prisma.pushToken.findMany({
+    const rows = await this.prisma.user.findMany({
       where: {
-        enabled: true,
-        // Siempre: usuarios activos y no borrados (soft delete).
-        user: {
-          deletedAt: null,
-          status: 'active',
-          ...this.audienceWhere(audience),
-        },
+        deletedAt: null,
+        status: 'active',
+        ...this.audienceWhere(audience),
       },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  // Tokens push activos de un conjunto de usuarios (el transporte del envío).
+  async getEnabledTokensForUserIds(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const rows = await this.prisma.pushToken.findMany({
+      where: { enabled: true, userId: { in: userIds } },
       select: { token: true },
     });
     return rows.map((r) => r.token);
+  }
+
+  // Traduce una audiencia directamente a tokens (usuarios → sus tokens activos).
+  async getTokensForAudience(
+    audience: NotificationAudience,
+  ): Promise<string[]> {
+    const userIds = await this.getUserIdsForAudience(audience);
+    return this.getEnabledTokensForUserIds(userIds);
   }
 
   // Limpia tokens que Expo reportó como muertos (DeviceNotRegistered): ese string
@@ -129,6 +145,11 @@ export class PushTokensService {
       // VIP: clientes que ya completaron al menos una compra.
       case NotificationAudience.VIP:
         return { orders: { some: { status: 'COMPLETED' } } };
+      // Por tipo de cuenta (mayorista / minorista).
+      case NotificationAudience.WHOLESALE_B2B:
+        return { accountType: 'B2B' };
+      case NotificationAudience.RETAIL_B2C:
+        return { accountType: 'B2C' };
       // INACTIVE: registrados que nunca han pedido.
       case NotificationAudience.INACTIVE:
         return { orders: { none: {} } };

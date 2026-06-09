@@ -1,7 +1,4 @@
 -- CreateEnum
-CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PAID', 'SHIPPED', 'CANCELLED');
-
--- CreateEnum
 CREATE TYPE "DiscountType" AS ENUM ('PERCENTAGE', 'FIXED_AMOUNT');
 
 -- CreateEnum
@@ -11,7 +8,7 @@ CREATE TYPE "ProductRelationType" AS ENUM ('UPSELL', 'CROSS_SELL');
 CREATE TYPE "NotificationStatus" AS ENUM ('DRAFT', 'SCHEDULED', 'SENT');
 
 -- CreateEnum
-CREATE TYPE "NotificationAudience" AS ENUM ('ALL_USERS', 'NEW_USERS', 'VIP', 'INACTIVE', 'CART_ABANDONMENT', 'NEWSLETTER');
+CREATE TYPE "NotificationAudience" AS ENUM ('ALL_USERS', 'NEW_USERS', 'VIP', 'INACTIVE', 'CART_ABANDONMENT', 'NEWSLETTER', 'WHOLESALE_B2B', 'RETAIL_B2C');
 
 -- CreateEnum
 CREATE TYPE "ContactMessageStatus" AS ENUM ('NEW', 'READ', 'ARCHIVED', 'TRASHED');
@@ -27,6 +24,7 @@ CREATE TABLE "users" (
     "firstName" TEXT NOT NULL,
     "lastName" TEXT NOT NULL,
     "avatar" TEXT,
+    "birthDate" TEXT,
     "password" TEXT,
     "phone" TEXT NOT NULL,
     "address" TEXT NOT NULL,
@@ -34,10 +32,14 @@ CREATE TABLE "users" (
     "state" TEXT NOT NULL,
     "zip" TEXT NOT NULL,
     "country" TEXT NOT NULL DEFAULT 'Venezuela',
+    "latitude" DOUBLE PRECISION,
+    "longitude" DOUBLE PRECISION,
     "role" TEXT NOT NULL DEFAULT 'customer',
     "status" TEXT NOT NULL DEFAULT 'active',
+    "accountType" TEXT NOT NULL DEFAULT 'B2C',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("userId")
 );
@@ -114,11 +116,15 @@ CREATE TABLE "products" (
     "name" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "price" DECIMAL(65,30) NOT NULL,
+    "offerPrice" DECIMAL(65,30),
+    "cost" DECIMAL(12,2),
+    "weightKg" DECIMAL(7,3),
     "mainImage" TEXT,
     "images" JSONB NOT NULL,
     "stock" INTEGER NOT NULL DEFAULT 0,
     "pointsPrice" DOUBLE PRECISION,
     "pointsEarned" DOUBLE PRECISION,
+    "visibility" TEXT NOT NULL DEFAULT 'ALL',
     "categoryId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -253,9 +259,10 @@ CREATE TABLE "orders" (
     "notes" TEXT,
     "discount" DECIMAL(65,30) NOT NULL DEFAULT 0,
     "total" DECIMAL(65,30) NOT NULL,
-    "status" "OrderStatus" NOT NULL DEFAULT 'PENDING',
+    "status" VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     "pointsEarned" INTEGER NOT NULL DEFAULT 0,
     "pointsAwarded" BOOLEAN NOT NULL DEFAULT false,
+    "completedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "orders_pkey" PRIMARY KEY ("orderId")
@@ -268,6 +275,7 @@ CREATE TABLE "order_items" (
     "productId" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
     "price" DECIMAL(65,30) NOT NULL,
+    "costSnapshot" DECIMAL(12,2),
 
     CONSTRAINT "order_items_pkey" PRIMARY KEY ("id")
 );
@@ -279,6 +287,7 @@ CREATE TABLE "contacts" (
     "lastName" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone" TEXT,
+    "fromNewsletter" BOOLEAN NOT NULL DEFAULT false,
     "userId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -343,6 +352,7 @@ CREATE TABLE "user_settings" (
     "userId" TEXT NOT NULL,
     "metaKey" TEXT NOT NULL,
     "metaValue" TEXT NOT NULL,
+    "metaGroup" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -374,6 +384,33 @@ CREATE TABLE "notifications" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "notifications_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "notification_recipients" (
+    "id" TEXT NOT NULL,
+    "notificationId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "read" BOOLEAN NOT NULL DEFAULT false,
+    "readAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "notification_recipients_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "push_tokens" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "platform" TEXT,
+    "deviceName" TEXT,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "lastUsedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "push_tokens_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -409,6 +446,9 @@ CREATE UNIQUE INDEX "users_id_key" ON "users"("id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+
+-- CreateIndex
+CREATE INDEX "users_deletedAt_idx" ON "users"("deletedAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "refresh_tokens_token_key" ON "refresh_tokens"("token");
@@ -525,10 +565,31 @@ CREATE INDEX "settings_metaGroup_idx" ON "settings"("metaGroup");
 CREATE INDEX "user_settings_userId_idx" ON "user_settings"("userId");
 
 -- CreateIndex
+CREATE INDEX "user_settings_metaGroup_idx" ON "user_settings"("metaGroup");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "user_settings_userId_metaKey_key" ON "user_settings"("userId", "metaKey");
 
 -- CreateIndex
 CREATE INDEX "bcv_rates_createdAt_idx" ON "bcv_rates"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "notification_recipients_userId_read_idx" ON "notification_recipients"("userId", "read");
+
+-- CreateIndex
+CREATE INDEX "notification_recipients_notificationId_idx" ON "notification_recipients"("notificationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "notification_recipients_notificationId_userId_key" ON "notification_recipients"("notificationId", "userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "push_tokens_token_key" ON "push_tokens"("token");
+
+-- CreateIndex
+CREATE INDEX "push_tokens_userId_idx" ON "push_tokens"("userId");
+
+-- CreateIndex
+CREATE INDEX "push_tokens_enabled_idx" ON "push_tokens"("enabled");
 
 -- CreateIndex
 CREATE INDEX "contact_messages_status_idx" ON "contact_messages"("status");
@@ -631,6 +692,15 @@ ALTER TABLE "payments" ADD CONSTRAINT "payments_orderId_fkey" FOREIGN KEY ("orde
 
 -- AddForeignKey
 ALTER TABLE "user_settings" ADD CONSTRAINT "user_settings_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "notification_recipients" ADD CONSTRAINT "notification_recipients_notificationId_fkey" FOREIGN KEY ("notificationId") REFERENCES "notifications"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "notification_recipients" ADD CONSTRAINT "notification_recipients_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "push_tokens" ADD CONSTRAINT "push_tokens_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "contact_messages" ADD CONSTRAINT "contact_messages_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "contacts"("id") ON DELETE SET NULL ON UPDATE CASCADE;

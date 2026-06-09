@@ -25,6 +25,10 @@ import {
   type BulkResult,
 } from '../common/bulk/bulk-import.helper';
 import { compactRow } from '../common/bulk/compact-row';
+import { GoogleAuthService } from './google-auth.service';
+import { GoogleLoginDto } from './dto/google-login.dto';
+import { AppleAuthService } from './apple-auth.service';
+import { AppleLoginDto } from './dto/apple-login.dto';
 
 /** Duración del refresh token: 30 días en ms */
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -34,6 +38,8 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly googleAuth: GoogleAuthService,
+    private readonly appleAuth: AppleAuthService,
   ) {}
 
   // Selección pública del usuario: NUNCA incluye `password`. Se usa en todas las
@@ -141,7 +147,9 @@ export class UsersService {
     }
     // Mismo criterio que login()/refresh(): no emitir sesión a cuentas inactivas.
     if (user.status !== 'active') {
-      throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
+      throw new UnauthorizedException(
+        'Usuario inactivo, contacta con un administrador',
+      );
     }
     const loyaltyPoints = await this.getLoyaltyPoints(userId);
     const { accessToken, refreshToken } = await this.issueTokenPair(userId);
@@ -159,7 +167,9 @@ export class UsersService {
   private async createRefreshToken(userId: string): Promise<string> {
     const token = randomBytes(64).toString('hex');
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
-    await this.prisma.refreshToken.create({ data: { token, userId, expiresAt } });
+    await this.prisma.refreshToken.create({
+      data: { token, userId, expiresAt },
+    });
     return token;
   }
 
@@ -235,16 +245,27 @@ export class UsersService {
         update: { userId: user.id },
       });
     } catch (error: unknown) {
-      console.error('[register] no se pudo crear/actualizar el Contact:', error);
+      console.error(
+        '[register] no se pudo crear/actualizar el Contact:',
+        error,
+      );
     }
   }
 
   async register(registerUserDto: RegisterUserDto) {
-    return this.createUser({ ...registerUserDto, role: 'customer', status: 'active' });
+    return this.createUser({
+      ...registerUserDto,
+      role: 'customer',
+      status: 'active',
+    });
   }
 
   async registerAdmin(registerUserDto: RegisterUserDto) {
-    return this.createUser({ ...registerUserDto, role: 'admin', status: 'active' });
+    return this.createUser({
+      ...registerUserDto,
+      role: 'admin',
+      status: 'active',
+    });
   }
 
   async create(createUserDto: CreateUserDto) {
@@ -274,16 +295,25 @@ export class UsersService {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    console.log('[login] usuario encontrado → status:', user.status, '| role:', user.role);
+    console.log(
+      '[login] usuario encontrado → status:',
+      user.status,
+      '| role:',
+      user.role,
+    );
 
     if (user.status !== 'active') {
       console.log('[login] usuario inactivo');
-      throw new UnauthorizedException('Usuario inactivo, contacta con un administrador');
+      throw new UnauthorizedException(
+        'Usuario inactivo, contacta con un administrador',
+      );
     }
 
     if (!user.password) {
       // Cuenta creada vía login social (Google/Apple): no tiene contraseña local
-      throw new UnauthorizedException('Esta cuenta inicia sesión con Google/Apple');
+      throw new UnauthorizedException(
+        'Esta cuenta inicia sesión con Google/Apple',
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -298,6 +328,162 @@ export class UsersService {
     const loyaltyPoints = await this.getLoyaltyPoints(user.id);
     console.log('[login] OK → id:', user.id);
     return { ...userWithoutPassword, loyaltyPoints, accessToken, refreshToken };
+  }
+
+  // ── login social (Google / Apple) ───────────────────────────────────────────
+  // Un único endpoint por proveedor sirve para iniciar sesión y para registrarse:
+  //   1) verifica el token del proveedor (firma + audiencia = nuestros client IDs),
+  //   2) busca por (provider, sub) en social_accounts → ya vinculado,
+  //   3) si no, busca por email → vincula la cuenta social al User existente,
+  //   4) si tampoco, crea el User (sin contraseña) + su SocialAccount.
+  // Siempre emite el MISMO shape que login()/register() (vía buildSessionForUser).
+  async googleLogin(dto: GoogleLoginDto) {
+    const payload = await this.googleAuth.verify(dto.idToken);
+    // Google marca email_verified; no aceptamos correos sin verificar para no
+    // permitir tomar la cuenta de otro que sí registró ese email con contraseña.
+    if (payload.email_verified === false) {
+      throw new UnauthorizedException('El email de Google no está verificado');
+    }
+    const userId = await this.resolveSocialUser(
+      'google',
+      {
+        providerAccountId: payload.sub,
+        email: payload.email,
+        firstName: payload.given_name,
+        lastName: payload.family_name,
+        name: payload.name,
+        avatar: payload.picture,
+      },
+      dto.accountType,
+    );
+    return this.buildSessionForUser(userId);
+  }
+
+  // Apple: el identity_token NO trae el nombre (sólo llega del cliente en el
+  // PRIMER inicio de sesión; el front lo reenvía en firstName/lastName). En
+  // accesos posteriores ya existe la SocialAccount, así que no se necesita.
+  async appleLogin(dto: AppleLoginDto) {
+    const payload = await this.appleAuth.verify(dto.identityToken);
+    const userId = await this.resolveSocialUser(
+      'apple',
+      {
+        providerAccountId: payload.sub,
+        email: payload.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      },
+      dto.accountType,
+    );
+    return this.buildSessionForUser(userId);
+  }
+
+  // Resuelve el `id` (UUID) del User a autenticar para un login social, creándolo
+  // o vinculándolo si hace falta. Compartido por Google y Apple.
+  private async resolveSocialUser(
+    provider: 'google' | 'apple',
+    profile: {
+      providerAccountId: string;
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      name?: string;
+      avatar?: string;
+    },
+    accountType?: string,
+  ): Promise<string> {
+    const { providerAccountId } = profile;
+    if (!providerAccountId) {
+      throw new UnauthorizedException(
+        'Token social sin identificador de usuario',
+      );
+    }
+    const email = profile.email?.toLowerCase().trim();
+    const composed = [profile.firstName, profile.lastName]
+      .filter(Boolean)
+      .join(' ');
+    const name = profile.name ?? (composed.length > 0 ? composed : undefined);
+    const avatar = profile.avatar;
+
+    // 1) ¿Ya existe la cuenta social vinculada?
+    const existingSocial = await this.prisma.socialAccount.findUnique({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+      select: { userId: true, user: { select: { deletedAt: true } } },
+    });
+    if (existingSocial) {
+      if (existingSocial.user.deletedAt) {
+        throw new UnauthorizedException('Cuenta deshabilitada');
+      }
+      // Refresca el snapshot informativo del proveedor (best-effort).
+      await this.prisma.socialAccount.update({
+        where: { provider_providerAccountId: { provider, providerAccountId } },
+        data: { email, name, avatar },
+      });
+      return existingSocial.userId;
+    }
+
+    // A partir de aquí necesitamos el email para crear/vincular. Apple sólo lo
+    // envía en el primer login; si falta y no había SocialAccount, no podemos.
+    if (!email) {
+      throw new UnauthorizedException(
+        'El proveedor no devolvió un email para crear la cuenta',
+      );
+    }
+
+    // 2) ¿Existe un User con ese email? (email es @unique, con o sin borrado)
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, deletedAt: true },
+    });
+    if (existingUser) {
+      if (existingUser.deletedAt) {
+        throw new UnauthorizedException('Cuenta deshabilitada');
+      }
+      // Vincula el proveedor a la cuenta existente (que pudo crearse con contraseña).
+      await this.prisma.socialAccount.create({
+        data: {
+          userId: existingUser.id,
+          provider,
+          providerAccountId,
+          email,
+          name,
+          avatar,
+        },
+      });
+      return existingUser.id;
+    }
+
+    // 3) Usuario nuevo: lo creamos SIN contraseña (cuenta sólo-social) junto a su
+    // SocialAccount. Los campos obligatorios de contacto se dejan vacíos (el
+    // cliente los completa luego en su perfil/checkout).
+    const firstName =
+      profile.firstName ?? profile.name?.split(' ')[0] ?? 'Cliente';
+    const lastName =
+      profile.lastName ?? profile.name?.split(' ').slice(1).join(' ') ?? '';
+    const created = await this.prisma.user.create({
+      data: {
+        email,
+        firstName,
+        lastName,
+        avatar,
+        phone: '',
+        address: '',
+        city: '',
+        state: '',
+        zip: '',
+        role: 'customer',
+        status: 'active',
+        accountType: accountType ?? 'B2C',
+        socialAccounts: {
+          create: { provider, providerAccountId, email, name, avatar },
+        },
+      },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+
+    // Best-effort: registrar también como Contact (fuente: registro social).
+    await this.upsertContactForUser({ ...created, phone: null });
+
+    return created.id;
   }
 
   // ── refresh & logout ──────────────────────────────────────────────────────────
@@ -338,7 +524,9 @@ export class UsersService {
       data: { isRevoked: true },
     });
 
-    const { accessToken, refreshToken } = await this.issueTokenPair(stored.user.id);
+    const { accessToken, refreshToken } = await this.issueTokenPair(
+      stored.user.id,
+    );
     const loyaltyPoints = await this.getLoyaltyPoints(stored.user.id);
     const { deletedAt: _deletedAt, ...safeUser } = stored.user;
     return { ...safeUser, loyaltyPoints, accessToken, refreshToken };
@@ -354,7 +542,14 @@ export class UsersService {
 
   // ── CRUD ──────────────────────────────────────────────────────────────────────
 
-  async findAll({ limit, offset, search, role, status, accountType }: UserQueryDto) {
+  async findAll({
+    limit,
+    offset,
+    search,
+    role,
+    status,
+    accountType,
+  }: UserQueryDto) {
     // Soft delete: nunca listamos clientes marcados como borrados.
     const where: Prisma.UserWhereInput = { deletedAt: null };
 
@@ -420,7 +615,11 @@ export class UsersService {
 
   // Cambio de contraseña verificando la actual (flujo seguro de "cambiar
   // contraseña" desde el perfil). El control de pertenencia lo hace el controller.
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: { id: true, password: true },
@@ -432,7 +631,8 @@ export class UsersService {
       );
     }
     const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) throw new UnauthorizedException('La contraseña actual es incorrecta');
+    if (!valid)
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
 
     await this.prisma.user.update({
       where: { id: userId },

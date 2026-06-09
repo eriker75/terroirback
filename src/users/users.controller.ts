@@ -9,11 +9,19 @@ import {
   Query,
   ForbiddenException,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+} from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
+import { AppleLoginDto } from './dto/apple-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpsertUserSettingsDto } from './dto/upsert-user-settings.dto';
@@ -34,7 +42,10 @@ export class UsersController {
 
   @Post('register')
   @ApiOperation({ summary: 'Registrar un nuevo cliente' })
-  @ApiResponse({ status: 201, description: 'Cliente registrado. Devuelve accessToken + refreshToken.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Cliente registrado. Devuelve accessToken + refreshToken.',
+  })
   @ApiResponse({ status: 409, description: 'El correo ya está registrado.' })
   register(@Body() registerUserDto: RegisterUserDto) {
     return this.usersService.register(registerUserDto);
@@ -53,16 +64,50 @@ export class UsersController {
 
   @Post('login')
   @ApiOperation({ summary: 'Iniciar sesión' })
-  @ApiResponse({ status: 200, description: 'Login exitoso. Devuelve accessToken + refreshToken.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login exitoso. Devuelve accessToken + refreshToken.',
+  })
   @ApiResponse({ status: 401, description: 'Credenciales incorrectas.' })
   login(@Body() loginUserDto: LoginUserDto) {
     return this.usersService.login(loginUserDto);
   }
 
+  @Post('google')
+  @ApiOperation({
+    summary: 'Iniciar sesión / registrarse con Google (id_token)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Sesión emitida. Devuelve accessToken + refreshToken.',
+  })
+  @ApiResponse({ status: 401, description: 'Token de Google inválido.' })
+  googleLogin(@Body() dto: GoogleLoginDto) {
+    return this.usersService.googleLogin(dto);
+  }
+
+  @Post('apple')
+  @ApiOperation({
+    summary: 'Iniciar sesión / registrarse con Apple (identity_token)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Sesión emitida. Devuelve accessToken + refreshToken.',
+  })
+  @ApiResponse({ status: 401, description: 'Token de Apple inválido.' })
+  appleLogin(@Body() dto: AppleLoginDto) {
+    return this.usersService.appleLogin(dto);
+  }
+
   @Post('refresh')
-  @ApiOperation({ summary: 'Renovar access token con refresh token (rotación)' })
+  @ApiOperation({
+    summary: 'Renovar access token con refresh token (rotación)',
+  })
   @ApiResponse({ status: 200, description: 'Nuevo par de tokens emitido.' })
-  @ApiResponse({ status: 401, description: 'Refresh token inválido o expirado.' })
+  @ApiResponse({
+    status: 401,
+    description: 'Refresh token inválido o expirado.',
+  })
   refresh(@Body() dto: RefreshTokenDto) {
     return this.usersService.refresh(dto.refreshToken);
   }
@@ -100,7 +145,9 @@ export class UsersController {
   @Get()
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '[Admin] Listar usuarios con paginación, búsqueda y filtros' })
+  @ApiOperation({
+    summary: '[Admin] Listar usuarios con paginación, búsqueda y filtros',
+  })
   findAll(@Query() queryDto: UserQueryDto) {
     return this.usersService.findAll(queryDto);
   }
@@ -108,7 +155,9 @@ export class UsersController {
   @Get('stats')
   @Auth(ValidRoles.admin)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '[Admin] Totales de clientes: total, activos, inactivos' })
+  @ApiOperation({
+    summary: '[Admin] Totales de clientes: total, activos, inactivos',
+  })
   getCustomerStats() {
     return this.usersService.getCustomerStats();
   }
@@ -120,17 +169,29 @@ export class UsersController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cambiar la contraseña (verifica la actual)' })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  @ApiResponse({ status: 401, description: 'La contraseña actual es incorrecta.' })
-  @ApiResponse({ status: 403, description: 'No puedes cambiar la contraseña de otro usuario.' })
+  @ApiResponse({
+    status: 401,
+    description: 'La contraseña actual es incorrecta.',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'No puedes cambiar la contraseña de otro usuario.',
+  })
   changePassword(
     @Param('id') id: string,
     @Body() dto: ChangePasswordDto,
     @GetUser() authUser: User,
   ) {
     if (authUser.role !== 'admin' && authUser.id !== id) {
-      throw new ForbiddenException('No puedes cambiar la contraseña de otro usuario');
+      throw new ForbiddenException(
+        'No puedes cambiar la contraseña de otro usuario',
+      );
     }
-    return this.usersService.changePassword(id, dto.currentPassword, dto.newPassword);
+    return this.usersService.changePassword(
+      id,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   // ── User settings (preferencias propias; el dueño o un admin) ──────────────
@@ -138,16 +199,23 @@ export class UsersController {
   @Get(':id/settings')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Listar los settings del usuario (filtrar por ?group=)' })
+  @ApiOperation({
+    summary: 'Listar los settings del usuario (filtrar por ?group=)',
+  })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  @ApiResponse({ status: 403, description: 'No puedes ver los settings de otro usuario.' })
+  @ApiResponse({
+    status: 403,
+    description: 'No puedes ver los settings de otro usuario.',
+  })
   getSettings(
     @Param('id') id: string,
     @Query('group') group: string | undefined,
     @GetUser() authUser: User,
   ) {
     if (authUser.role !== 'admin' && authUser.id !== id) {
-      throw new ForbiddenException('No tienes acceso a los settings de otro usuario');
+      throw new ForbiddenException(
+        'No tienes acceso a los settings de otro usuario',
+      );
     }
     return this.usersService.getUserSettings(id, group);
   }
@@ -155,16 +223,23 @@ export class UsersController {
   @Patch(':id/settings')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Crear/actualizar settings del usuario (upsert por metaKey)' })
+  @ApiOperation({
+    summary: 'Crear/actualizar settings del usuario (upsert por metaKey)',
+  })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  @ApiResponse({ status: 403, description: 'No puedes modificar los settings de otro usuario.' })
+  @ApiResponse({
+    status: 403,
+    description: 'No puedes modificar los settings de otro usuario.',
+  })
   upsertSettings(
     @Param('id') id: string,
     @Body() dto: UpsertUserSettingsDto,
     @GetUser() authUser: User,
   ) {
     if (authUser.role !== 'admin' && authUser.id !== id) {
-      throw new ForbiddenException('No tienes acceso a los settings de otro usuario');
+      throw new ForbiddenException(
+        'No tienes acceso a los settings de otro usuario',
+      );
     }
     return this.usersService.upsertUserSettings(id, dto.settings);
   }
@@ -172,13 +247,20 @@ export class UsersController {
   @Get(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener usuario por ID (propio, o cualquiera si admin)' })
+  @ApiOperation({
+    summary: 'Obtener usuario por ID (propio, o cualquiera si admin)',
+  })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  @ApiResponse({ status: 403, description: 'No puedes ver el perfil de otro usuario.' })
+  @ApiResponse({
+    status: 403,
+    description: 'No puedes ver el perfil de otro usuario.',
+  })
   findOne(@Param('id') id: string, @GetUser() authUser: User) {
     // Evita IDOR: un customer sólo puede ver su propio perfil; el admin, cualquiera.
     if (authUser.role !== 'admin' && authUser.id !== id) {
-      throw new ForbiddenException('No tienes acceso al perfil de otro usuario');
+      throw new ForbiddenException(
+        'No tienes acceso al perfil de otro usuario',
+      );
     }
     return this.usersService.findOne(id);
   }
@@ -186,9 +268,14 @@ export class UsersController {
   @Patch(':id')
   @Auth()
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Actualizar usuario (propio, o cualquiera si admin)' })
+  @ApiOperation({
+    summary: 'Actualizar usuario (propio, o cualquiera si admin)',
+  })
   @ApiParam({ name: 'id', description: 'UUID del usuario' })
-  @ApiResponse({ status: 403, description: 'No puedes modificar el perfil de otro usuario.' })
+  @ApiResponse({
+    status: 403,
+    description: 'No puedes modificar el perfil de otro usuario.',
+  })
   update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
@@ -196,7 +283,9 @@ export class UsersController {
   ) {
     // Evita IDOR: sólo el dueño o un admin pueden modificar.
     if (authUser.role !== 'admin' && authUser.id !== id) {
-      throw new ForbiddenException('No tienes acceso al perfil de otro usuario');
+      throw new ForbiddenException(
+        'No tienes acceso al perfil de otro usuario',
+      );
     }
     // Evita escalada de privilegios: un no-admin NO puede cambiar role/status, ni
     // auto-promoverse a mayorista (accountType) para obtener precios/visibilidad B2B.

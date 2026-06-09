@@ -94,6 +94,44 @@ export class NotificationsController {
     return this.notificationsService.sendTestToUser(user.id, dto);
   }
 
+  // ── Cliente: buzón de notificaciones del usuario ────────────────────────────
+
+  @Get('me')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mi buzón de notificaciones (paginado)' })
+  listMine(@GetUser() user: User, @Query() paginationDto: PaginationDto) {
+    return this.notificationsService.listForUser(user.id, paginationDto);
+  }
+
+  @Get('me/unread-count')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Nº de notificaciones no leídas' })
+  myUnreadCount(@GetUser() user: User) {
+    return this.notificationsService.unreadCountForUser(user.id);
+  }
+
+  @Post('me/read-all')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Marcar todas mis notificaciones como leídas' })
+  markAllMineRead(@GetUser() user: User) {
+    return this.notificationsService.markAllReadForUser(user.id);
+  }
+
+  @Patch('me/:id/read')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Marcar una notificación del buzón como leída' })
+  @ApiParam({
+    name: 'id',
+    description: 'ID de la entrada del buzón (recipient)',
+  })
+  markMineRead(@GetUser() user: User, @Param('id') id: string) {
+    return this.notificationsService.markReadForUser(user.id, id);
+  }
+
   // ── Admin: campañas de notificaciones ──────────────────────────────────────
 
   @Post()

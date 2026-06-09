@@ -54,7 +54,7 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
-  
+
   // Bind explícito a 0.0.0.0 (requerido por Cloud Run; PORT lo inyecta el entorno).
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 

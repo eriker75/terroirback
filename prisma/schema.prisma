@@ -35,6 +35,10 @@ enum NotificationAudience {
   INACTIVE
   CART_ABANDONMENT
   NEWSLETTER
+  // Segmentación por tipo de cuenta (User.accountType). Permite campañas dirigidas
+  // a mayoristas (B2B) o minoristas (B2C) — ver [[wholesale-accounttype]].
+  WHOLESALE_B2B
+  RETAIL_B2C
 }
 
 enum ContactMessageStatus {
@@ -93,6 +97,7 @@ model User {
   contacts       Contact[]
   settings       UserSetting[]
   pushTokens     PushToken[]
+  notifications  NotificationRecipient[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -597,6 +602,9 @@ model BcvRate {
 // -----------------------------------------------------------------------------
 // NOTIFICACIONES
 // -----------------------------------------------------------------------------
+// Una `Notification` es la CAMPAÑA: el contenido + el segmento (`audience`) al que
+// va dirigida. No apunta a un usuario concreto (va a muchos). La entrega real a
+// cada usuario se materializa en `NotificationRecipient` al pulsar "Enviar".
 model Notification {
   id          String               @id @default(uuid())
   title       String
@@ -605,11 +613,40 @@ model Notification {
   status      NotificationStatus   @default(DRAFT)
   scheduledAt DateTime?
   sentAt      DateTime?
+  // Nº de usuarios alcanzados (filas de NotificationRecipient creadas al enviar).
   sentCount   Int                  @default(0)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
+  recipients NotificationRecipient[]
+
   @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// ENTREGA DE NOTIFICACIONES (buzón por usuario) — relación M:N Notification↔User
+// -----------------------------------------------------------------------------
+// Tabla intermedia que materializa "a qué usuarios se les envió esta campaña".
+// Se crea una fila por (notificación, usuario) al ejecutar el envío (resolviendo
+// la `audience` a usuarios). Es lo que alimenta el buzón in-app y el estado de
+// leído/no leído por usuario. El push (PushToken) es solo el transporte: un
+// usuario recibe la entrada en su buzón aunque no tenga dispositivos con push.
+model NotificationRecipient {
+  id             String       @id @default(uuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  read           Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  // Un usuario no recibe dos veces la misma campaña (idempotencia del envío).
+  @@unique([notificationId, userId])
+  // Buzón: "mis notificaciones (no leídas)" ordenadas por fecha.
+  @@index([userId, read])
+  @@index([notificationId])
+  @@map("notification_recipients")
 }
 
 // -----------------------------------------------------------------------------
