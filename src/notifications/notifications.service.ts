@@ -174,6 +174,15 @@ export class NotificationsService {
     return { updated: count };
   }
 
+  // Elimina una entrada del buzón del usuario (no borra la campaña). Acotado al
+  // dueño por `userId`. Borra sólo su fila de notification_recipients.
+  async removeForUser(userId: string, recipientId: string) {
+    const { count } = await this.prisma.notificationRecipient.deleteMany({
+      where: { id: recipientId, userId },
+    });
+    return { deleted: count };
+  }
+
   // Push de prueba a los propios dispositivos del usuario autenticado.
   async sendTestToUser(
     userId: string,

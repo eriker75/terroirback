@@ -132,6 +132,18 @@ export class NotificationsController {
     return this.notificationsService.markReadForUser(user.id, id);
   }
 
+  @Delete('me/:id')
+  @Auth()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Eliminar una notificación de mi buzón' })
+  @ApiParam({
+    name: 'id',
+    description: 'ID de la entrada del buzón (recipient)',
+  })
+  removeMine(@GetUser() user: User, @Param('id') id: string) {
+    return this.notificationsService.removeForUser(user.id, id);
+  }
+
   // ── Admin: campañas de notificaciones ──────────────────────────────────────
 
   @Post()
