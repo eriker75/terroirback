@@ -188,6 +188,16 @@ export class OrdersService {
       throw new BadRequestException('El pago con puntos no está disponible para cuentas mayoristas');
     }
 
+    // El débito inmediato (R4) necesita los datos del pagador desde el inicio:
+    // con ellos el banco genera el OTP y ejecuta el cobro tras crear la orden.
+    if (dto.paymentMethod === 'debito_inmediato') {
+      if (!dto.bankCode || !dto.payerIdDocument?.trim() || !dto.payerPhone?.trim()) {
+        throw new BadRequestException(
+          'El débito inmediato requiere banco, cédula y teléfono del pagador',
+        );
+      }
+    }
+
     // Horario de servicio (settings grupo HOURS). Solo bloquea si la política
     // configurada es 'block'; con 'notify' (default) el pedido se acepta y el
     // front avisa que se procesará en la próxima apertura. La validación vive
@@ -447,21 +457,26 @@ export class OrdersService {
       }
 
       // 6) Construir los datos del pago.
-      //    - bcvRate/amountVes sólo tienen sentido para pago_movil.
+      //    - bcvRate/amountVes aplican a los métodos en bolívares
+      //      (pago_movil y debito_inmediato).
       //    - El monto del pago es el TOTAL ya con el descuento del cupón aplicado.
-      //    - bank = código del banco DEL CLIENTE (normalizado a 4 dígitos) para
-      //      pago_movil; para efectivo/puntos/yummy queda sin asignar (null).
+      //    - bank = código del banco DEL CLIENTE (normalizado a 4 dígitos);
+      //      para efectivo/puntos/yummy queda sin asignar (null).
+      //    - reference: en pago_movil la aporta el cliente; en débito inmediato
+      //      la asigna el banco al aprobar (ACCP).
       const isPagoMovil = dto.paymentMethod === 'pago_movil';
+      const isDebito = dto.paymentMethod === 'debito_inmediato';
+      const paysInBolivares = isPagoMovil || isDebito;
       const paymentData: Prisma.PaymentCreateWithoutOrderInput = {
         method: dto.paymentMethod,
         status: 'PENDING',
         amount: total,
         currency: 'USD',
-        bank: isPagoMovil ? norm(dto.bankCode) : null,
-        amountVes: isPagoMovil ? new Prisma.Decimal(total).times(bcv) : null,
+        bank: paysInBolivares ? norm(dto.bankCode) : null,
+        amountVes: paysInBolivares ? new Prisma.Decimal(total).times(bcv) : null,
       };
-      if (isPagoMovil) {
-        paymentData.reference = dto.paymentReference ?? null;
+      if (paysInBolivares) {
+        paymentData.reference = isPagoMovil ? (dto.paymentReference ?? null) : null;
         paymentData.payerIdDocument = dto.payerIdDocument ?? null;
         paymentData.payerName = dto.payerName ?? null;
         paymentData.payerPhone = dto.payerPhone ?? null;

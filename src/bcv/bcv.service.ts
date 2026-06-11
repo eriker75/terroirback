@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/database.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { R4ConectaService } from '../r4/r4-conecta.service';
 
 // Tasa por defecto si todavía no hay ninguna fila en bcv_rates.
 const DEFAULT_RATE = 40;
@@ -13,7 +14,10 @@ const EXCHANGE_RATE_URL = 'https://open.er-api.com/v6/latest/USD';
 export class BcvService {
   private readonly logger = new Logger(BcvService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly r4: R4ConectaService,
+  ) {}
 
   // Tasa vigente = última fila insertada. null si todavía no hay ninguna.
   async getCurrentRate(): Promise<{ rate: number; source: string; updatedAt: Date } | null> {
@@ -48,10 +52,42 @@ export class BcvService {
     return DEFAULT_RATE;
   }
 
-  // Refresca la tasa desde el proveedor externo. Si la respuesta es válida
-  // (VES > 0) inserta una fila EXCHANGERATE_API y la devuelve. Si falla, cae a
-  // la tasa almacenada (sin insertar) y la devuelve marcada como STORED.
+  // Fecha de hoy (yyyy-mm-dd) en la zona horaria de la tienda, que es la que
+  // espera el campo Fechavalor del método MBbcv de R4.
+  private todayInCaracas(): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: process.env.TZ || 'America/Caracas',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+
+  // Refresca la tasa. Orden de preferencia:
+  //   1) R4 Conecta (MBbcv) — tasa OFICIAL BCV vía el banco (si hay credenciales).
+  //   2) open.er-api.com — proveedor público gratuito (aproximación de mercado).
+  //   3) Tasa almacenada (sin insertar), marcada como STORED.
   async refresh(): Promise<{ rate: number; source: string }> {
+    if (this.r4.isConfigured()) {
+      try {
+        const res = await this.r4.consultarTasaBcv(this.todayInCaracas());
+        const tipocambio = Number(res?.tipocambio);
+        if (res?.code === '00' && Number.isFinite(tipocambio) && tipocambio > 0) {
+          const created = await this.prisma.bcvRate.create({
+            data: { rate: new Prisma.Decimal(tipocambio), source: 'R4' },
+          });
+          return { rate: Number(created.rate), source: created.source };
+        }
+        this.logger.warn(
+          `R4 MBbcv sin tasa válida (code=${res?.code}); caigo al proveedor público`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Fallo consultando tasa BCV vía R4: ${(error as Error)?.message ?? error}`,
+        );
+      }
+    }
+
     try {
       const res = await fetch(EXCHANGE_RATE_URL, {
         headers: { Accept: 'application/json' },

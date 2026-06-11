@@ -92,11 +92,12 @@ export class CreatePublicOrderDto {
 
   @ApiProperty({
     example: 'pago_movil',
-    enum: ['pago_movil', 'efectivo', 'puntos', 'yummy'],
-    description: 'Método de pago',
+    enum: ['pago_movil', 'debito_inmediato', 'efectivo', 'puntos', 'yummy'],
+    description:
+      'Método de pago. debito_inmediato = cobro interbancario R4 con OTP (requiere bankCode, payerIdDocument y payerPhone)',
   })
   @IsString()
-  @IsIn(['pago_movil', 'efectivo', 'puntos', 'yummy'])
+  @IsIn(['pago_movil', 'debito_inmediato', 'efectivo', 'puntos', 'yummy'])
   paymentMethod: string;
 
   @ApiPropertyOptional({ example: '0123456789', description: 'Referencia del pago (pago móvil)' })

@@ -124,13 +124,22 @@ GOOGLE_ANDROID_CLIENT_ID ?=
 APPLE_BUNDLE_ID          ?= com.terroir.eribert
 APPLE_SERVICE_ID         ?=
 
+# R4 Conecta (el token R4_COMMERCE_ID va en el secreto terroir-r4-commerce-id).
+# La cuenta receptora es FALLBACK: la prioridad la tienen los settings del admin.
+R4_BASE_URL          ?= https://r4conecta.mibanco.com.ve
+R4_CUENTA_BANCO      ?= 0169
+R4_CUENTA_CEDULA     ?= J-508025903
+R4_CUENTA_TELEFONO   ?= 04245191996
+# Separadas por ';' (la coma es el separador de --set-env-vars de gcloud)
+R4_ALLOWED_IPS       ?= 45.175.213.98;200.74.203.91;204.199.249.3
+
 BACKEND_IMAGE = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(REPO)/backend:latest
 BACKEND_SA    = terroir-backend@$(PROJECT_ID).iam.gserviceaccount.com
 
 # Env vars de runtime (las secretas van por Secret Manager)
-BACKEND_ENV = NODE_ENV=production,RUN_MIGRATIONS=false,TZ=$(TZ),STORAGE_TYPE=gcs,GCS_BUCKET_NAME=$(BUCKET),GCP_PROJECT_ID=$(PROJECT_ID),CORS_ORIGIN=$(CORS_ORIGIN),SMTP_HOST=$(SMTP_HOST),SMTP_PORT=$(SMTP_PORT),SMTP_USER=$(SMTP_USER),SMTP_FROM=$(SMTP_FROM),GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),APPLE_BUNDLE_ID=$(APPLE_BUNDLE_ID),APPLE_SERVICE_ID=$(APPLE_SERVICE_ID)
+BACKEND_ENV = NODE_ENV=production,RUN_MIGRATIONS=false,TZ=$(TZ),STORAGE_TYPE=gcs,GCS_BUCKET_NAME=$(BUCKET),GCP_PROJECT_ID=$(PROJECT_ID),CORS_ORIGIN=$(CORS_ORIGIN),SMTP_HOST=$(SMTP_HOST),SMTP_PORT=$(SMTP_PORT),SMTP_USER=$(SMTP_USER),SMTP_FROM=$(SMTP_FROM),GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),APPLE_BUNDLE_ID=$(APPLE_BUNDLE_ID),APPLE_SERVICE_ID=$(APPLE_SERVICE_ID),R4_BASE_URL=$(R4_BASE_URL),R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)
 
-BACKEND_SECRETS = DATABASE_URL=terroir-database-url:latest,JWT_SECRET=terroir-jwt-secret:latest,R4_WEBHOOK_TOKEN=terroir-r4-webhook-token:latest,SMTP_PASS=terroir-smtp-pass:latest
+BACKEND_SECRETS = DATABASE_URL=terroir-database-url:latest,JWT_SECRET=terroir-jwt-secret:latest,R4_WEBHOOK_TOKEN=terroir-r4-webhook-token:latest,R4_COMMERCE_ID=terroir-r4-commerce-id:latest,SMTP_PASS=terroir-smtp-pass:latest
 
 .PHONY: gcp-check gcp-auth gcp-build gcp-upload gcp-publish gcp-cloudbuild \
         gcp-migrate gcp-service gcp-deploy gcp-cors gcp-logs gcp-url
@@ -159,7 +168,7 @@ gcp-publish: gcp-build gcp-upload
 # Es el mismo cloudbuild.yaml que ejecuta el trigger de GitHub en cada push.
 gcp-cloudbuild: gcp-check
 	gcloud builds submit --config cloudbuild.yaml \
-	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM) .
+	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM),_R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),_R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),_R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),"_R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)" .
 
 # Migraciones como Cloud Run Job: misma imagen, pero solo `npx prisma migrate deploy`.
 # Se corre ANTES de desplegar el servicio (que arranca con RUN_MIGRATIONS=false).
@@ -172,7 +181,10 @@ gcp-migrate: gcp-check
 	  --memory 1Gi --max-retries 0 --task-timeout 600
 	gcloud run jobs execute terroir-migrate --region $(REGION) --wait
 
-# Solo (re)despliega el servicio con la imagen ya subida a Artifact Registry
+# Solo (re)despliega el servicio con la imagen ya subida a Artifact Registry.
+# NOTA VPC/NAT (IP fija de salida para R4, ver docs/cloud-nat-r4.md): cuando el
+# Cloud NAT esté creado y verificado, agrega estas flags al comando:
+#	  --network=default --subnet=default --vpc-egress=all-traffic \
 gcp-service: gcp-check
 	gcloud run deploy $(BACKEND_SERVICE) --image $(BACKEND_IMAGE) --region $(REGION) \
 	  --service-account $(BACKEND_SA) \

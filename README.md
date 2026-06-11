@@ -93,12 +93,24 @@ construye `DATABASE_URL` a partir de las variables `POSTGRES_*`.
 | `GOOGLE_IOS_CLIENT_ID` / `GOOGLE_ANDROID_CLIENT_ID` | para apps nativas | — | Client IDs de cada plataforma móvil |
 | `APPLE_BUNDLE_ID` / `APPLE_SERVICE_ID` | para login Apple | `com.terroir.eribert` / — | Bundle de la app iOS / Services ID para la web |
 
-### Pagos — Webhook de R4 (pago móvil)
+### Pagos — R4 Conecta (pago móvil + débito inmediato)
 
 | Variable | Req. | Default | Descripción |
 |---|---|---|---|
 | `R4_WEBHOOK_TOKEN` | sí (para webhooks) | — | Token (UUID) que R4 envía en `Authorization` a `POST /api/webhooks/r4/notifica` y `/consulta`. **Bloqueante**: si falta o no coincide, el webhook responde 401 y no confirma el pago. En Cloud Run: secreto `terroir-r4-webhook-token` |
-| `R4_BASE_URL`, `R4_COMMERCE_ID`, `R4_CUENTA_*` | futuro | — | Integración R4 **saliente** (consultas/cobros directos). Aún no usada por el código. Requerirá IP de salida fija (Cloud NAT) |
+| `R4_BASE_URL` | no | `https://r4conecta.mibanco.com.ve` | Punto de entrada del API R4 |
+| `R4_COMMERCE_ID` | para débito/BCV-R4 | — | Token "Commerce" del banco: llave del HMAC-SHA256 (hex) de cada request Y header `Commerce`. Sin él (≥32 chars) el método débito se OCULTA en el checkout y la tasa BCV cae al proveedor público. En Cloud Run: secreto `terroir-r4-commerce-id` |
+| `R4_CUENTA_BANCO` / `R4_CUENTA_CEDULA` / `R4_CUENTA_TELEFONO` | fallback | `0169` / `J-508025903` / `04245191996` | Cuenta receptora del comercio. **Prioridad: settings del admin** (grupo `PAYMENT`: `payment_pago_movil_bank/_phone/_rif`); estas env son el respaldo |
+| `R4_ALLOWED_IPS` | no | — | Allowlist de IPs de origen del webhook (separadas por `;`). Vacío = deshabilitado |
+
+**Flujo débito inmediato** (guía R4 v3.0): `POST /api/checkout` con
+`paymentMethod=debito_inmediato` (+ banco/cédula/teléfono del pagador) →
+`POST /api/payments/debito/otp` (el banco envía el OTP al cliente) →
+`POST /api/payments/debito/confirmar` (`ACCP`=pagado → orden a PREPARING +
+puntos; `AC00`=en espera → polling con `POST /api/payments/debito/estado`).
+Cliente HTTP/HMAC en `src/r4/r4-conecta.service.ts`. La integración saliente
+requiere **IP fija** (Cloud NAT — ver `docs/cloud-nat-r4.md` del workspace) y
+pasarle esa IP al banco.
 
 ### Tasa BCV (USD→VES)
 

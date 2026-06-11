@@ -34,6 +34,22 @@ export class R4WebhooksService {
     }
   }
 
+  // Allowlist de IPs de origen (guía R4: "solo permitir request de estas IP").
+  // R4_ALLOWED_IPS = lista separada por ';' o ',' (en Cloud Run se usa ';'
+  // porque --set-env-vars reserva la coma); vacía/ausente = deshabilitado
+  // (el token sigue siendo la barrera principal).
+  private validateSourceIp(sourceIp?: string): void {
+    const raw = this.config.get<string>('R4_ALLOWED_IPS')?.trim();
+    if (!raw) return;
+    const allowed = raw.split(/[;,\s]+/).map((ip) => ip.trim()).filter(Boolean);
+    if (!sourceIp || !allowed.includes(sourceIp)) {
+      this.logger.error(
+        `Webhook R4 desde IP no permitida: ${sourceIp ?? 'desconocida'}`,
+      );
+      throw new UnauthorizedException('Origen no permitido');
+    }
+  }
+
   // Normaliza un código de banco a 4 dígitos. null si no hay dígitos.
   private normalizeBank(code?: string): string | null {
     const digits = (code ?? '').replace(/\D/g, '');
@@ -59,7 +75,9 @@ export class R4WebhooksService {
   async handleNotifica(
     body: R4WebhookNotificaDto,
     authToken?: string,
+    sourceIp?: string,
   ): Promise<{ abono: boolean }> {
+    this.validateSourceIp(sourceIp); // allowlist opcional (R4_ALLOWED_IPS)
     this.validateToken(authToken); // bloqueante: lanza 401 si el token no es válido
 
     if (!body?.CodigoRed || !body?.Referencia || !body?.TelefonoEmisor || !body?.Monto) {
@@ -152,7 +170,9 @@ export class R4WebhooksService {
   async handleConsulta(
     _body: R4WebhookConsultaDto,
     authToken?: string,
+    sourceIp?: string,
   ): Promise<{ status: boolean }> {
+    this.validateSourceIp(sourceIp);
     this.validateToken(authToken);
     return { status: true };
   }
