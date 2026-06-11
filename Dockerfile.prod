@@ -1,12 +1,15 @@
 # ============================================
 # STAGE 1: Build
 # ============================================
-ARG NODE_IMAGE=node:20-alpine
+ARG NODE_IMAGE=node:22-alpine
 FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /usr/src/app
 
 COPY package*.json ./
+# .npmrc trae legacy-peer-deps=true: sin él, el npm del contenedor espera los
+# peer deps (react & co.) en el lock y `npm ci` falla aunque local funcione.
+COPY .npmrc ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
@@ -27,25 +30,21 @@ RUN npm run build
 # ============================================
 # STAGE 2: Production image
 # ============================================
-ARG NODE_IMAGE=node:20-alpine
+ARG NODE_IMAGE=node:22-alpine
 FROM ${NODE_IMAGE} AS production
 
 WORKDIR /usr/src/app
 
-RUN apk add --no-cache curl postgresql-client \
-    nss freetype harfbuzz ca-certificates fontconfig ttf-freefont
+# curl: lo usa el healthcheck de docker-compose.prod.yml
+RUN apk add --no-cache curl postgresql-client
 
 COPY package*.json ./
+COPY .npmrc ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
 # Production deps only
-RUN npm ci --only=production --ignore-scripts && npm cache clean --force
-
-RUN npm install -g pm2 && \
-    pm2 install pm2-logrotate && \
-    pm2 set pm2-logrotate:max_size 10M && \
-    pm2 set pm2-logrotate:retain 7
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy generated Prisma client from builder
 COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
@@ -75,5 +74,7 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
 
+# Sin PM2: Cloud Run (y Docker con restart:always) ya reinician el proceso,
+# y los logs por stdout van directo a Cloud Logging.
 ENTRYPOINT ["/usr/src/app/scripts/entrypoint.prod.sh"]
-CMD ["pm2-runtime", "start", "dist/src/main.js", "--name", "terroir-backend"]
+CMD ["node", "dist/src/main.js"]

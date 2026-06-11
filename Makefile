@@ -94,6 +94,108 @@ shell-db:
 	docker exec -it terroir_postgres psql -U $(shell grep POSTGRES_USER .env | cut -d= -f2) \
 	  -d $(shell grep POSTGRES_DB .env | cut -d= -f2)
 
+# ─── Google Cloud Run (guía completa en ../docs/deploy-gcp.md) ──────────────────
+# La infra (APIs, Cloud SQL, bucket, service account, secretos) se crea manual
+# UNA vez — ver la guía. Estos targets solo despliegan.
+
+# Config: edita aquí o pasa por línea de comandos (make gcp-deploy PROJECT_ID=otro)
+PROJECT_ID      ?= terroir-497922
+REGION          ?= us-east1
+REPO            ?= terroir-artifacts-repository
+SQL_INSTANCE    ?= terroir-db-instance
+BUCKET          ?= terroir_files_bucket
+BACKEND_SERVICE ?= terroir-backend
+WEB_SERVICE     ?= terroir-web
+TZ              ?= America/Caracas
+# URL del web desplegado. Va en CADA deploy porque --set-env-vars reemplaza
+# todas las env vars (si no, el redeploy borraría el CORS).
+CORS_ORIGIN     ?= https://terroir-web-rkcvtfjtfa-ue.a.run.app
+
+# SMTP de producción (la clave va en el secreto terroir-smtp-pass, no aquí)
+SMTP_HOST ?=
+SMTP_PORT ?= 587
+SMTP_USER ?=
+SMTP_FROM ?= noreply@tudominio.com
+
+# Login social (vacíos = deshabilitado)
+GOOGLE_WEB_CLIENT_ID     ?=
+GOOGLE_IOS_CLIENT_ID     ?=
+GOOGLE_ANDROID_CLIENT_ID ?=
+APPLE_BUNDLE_ID          ?= com.terroir.eribert
+APPLE_SERVICE_ID         ?=
+
+BACKEND_IMAGE = $(REGION)-docker.pkg.dev/$(PROJECT_ID)/$(REPO)/backend:latest
+BACKEND_SA    = terroir-backend@$(PROJECT_ID).iam.gserviceaccount.com
+
+# Env vars de runtime (las secretas van por Secret Manager)
+BACKEND_ENV = NODE_ENV=production,RUN_MIGRATIONS=false,TZ=$(TZ),STORAGE_TYPE=gcs,GCS_BUCKET_NAME=$(BUCKET),GCP_PROJECT_ID=$(PROJECT_ID),CORS_ORIGIN=$(CORS_ORIGIN),SMTP_HOST=$(SMTP_HOST),SMTP_PORT=$(SMTP_PORT),SMTP_USER=$(SMTP_USER),SMTP_FROM=$(SMTP_FROM),GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),APPLE_BUNDLE_ID=$(APPLE_BUNDLE_ID),APPLE_SERVICE_ID=$(APPLE_SERVICE_ID)
+
+BACKEND_SECRETS = DATABASE_URL=terroir-database-url:latest,JWT_SECRET=terroir-jwt-secret:latest,R4_WEBHOOK_TOKEN=terroir-r4-webhook-token:latest,SMTP_PASS=terroir-smtp-pass:latest
+
+.PHONY: gcp-check gcp-auth gcp-build gcp-upload gcp-publish gcp-cloudbuild \
+        gcp-migrate gcp-service gcp-deploy gcp-cors gcp-logs gcp-url
+
+gcp-check:
+ifeq ($(strip $(PROJECT_ID)),)
+	$(error PROJECT_ID vacío: edita la sección "Google Cloud Run" de este Makefile)
+endif
+
+# Autentica el docker local contra Artifact Registry (una vez; lo usa gcp-upload)
+gcp-auth: gcp-check
+	gcloud auth configure-docker $(REGION)-docker.pkg.dev --quiet
+
+# Build LOCAL de la imagen (amd64, la arquitectura de Cloud Run)
+gcp-build: gcp-check
+	docker build -f Dockerfile.prod --platform linux/amd64 -t $(BACKEND_IMAGE) .
+
+# Sube la imagen local a Artifact Registry (requiere make gcp-auth una vez)
+gcp-upload: gcp-check
+	docker push $(BACKEND_IMAGE)
+
+# Build local + upload
+gcp-publish: gcp-build gcp-upload
+
+# Pipeline REMOTO completo en Cloud Build: build → push → migraciones → deploy.
+# Es el mismo cloudbuild.yaml que ejecuta el trigger de GitHub en cada push.
+gcp-cloudbuild: gcp-check
+	gcloud builds submit --config cloudbuild.yaml \
+	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM) .
+
+# Migraciones como Cloud Run Job: misma imagen, pero solo `npx prisma migrate deploy`.
+# Se corre ANTES de desplegar el servicio (que arranca con RUN_MIGRATIONS=false).
+gcp-migrate: gcp-check
+	gcloud run jobs deploy terroir-migrate --image $(BACKEND_IMAGE) --region $(REGION) \
+	  --service-account $(BACKEND_SA) \
+	  --set-cloudsql-instances $(PROJECT_ID):$(REGION):$(SQL_INSTANCE) \
+	  --set-secrets "DATABASE_URL=terroir-database-url:latest" \
+	  --command npx --args prisma,migrate,deploy \
+	  --memory 1Gi --max-retries 0 --task-timeout 600
+	gcloud run jobs execute terroir-migrate --region $(REGION) --wait
+
+# Solo (re)despliega el servicio con la imagen ya subida a Artifact Registry
+gcp-service: gcp-check
+	gcloud run deploy $(BACKEND_SERVICE) --image $(BACKEND_IMAGE) --region $(REGION) \
+	  --service-account $(BACKEND_SA) \
+	  --add-cloudsql-instances $(PROJECT_ID):$(REGION):$(SQL_INSTANCE) \
+	  --allow-unauthenticated --memory 1Gi --cpu 1 --min-instances 0 --max-instances 3 \
+	  --set-secrets "$(BACKEND_SECRETS)" \
+	  --set-env-vars "$(BACKEND_ENV)"
+
+# Todo-en-uno: el pipeline de Cloud Build ya incluye migraciones y deploy.
+# (La vía local equivalente: gcp-publish + gcp-migrate + gcp-service.)
+gcp-deploy: gcp-cloudbuild
+
+# Apunta CORS_ORIGIN a la URL del web desplegado (runtime, sin rebuild)
+gcp-cors: gcp-check
+	@WEB_URL=$$(gcloud run services describe $(WEB_SERVICE) --region $(REGION) --format='value(status.url)') && \
+	gcloud run services update $(BACKEND_SERVICE) --region $(REGION) --update-env-vars CORS_ORIGIN=$$WEB_URL
+
+gcp-logs: gcp-check
+	gcloud run services logs read $(BACKEND_SERVICE) --region $(REGION) --limit 100
+
+gcp-url: gcp-check
+	@gcloud run services describe $(BACKEND_SERVICE) --region $(REGION) --format='value(status.url)'
+
 # ─── Utilidades ────────────────────────────────────────────────────────────────
 
 stats:
@@ -123,7 +225,19 @@ help:
 	@echo ""
 	@echo "  Producción:"
 	@echo "    make up-prod          Levanta en modo prod con .env.prod"
-	@echo "    make build-image      Build imagen Docker para Cloud Run"
+	@echo "    make build-image      Build imagen Docker local"
+	@echo ""
+	@echo "  Google Cloud Run (config al inicio de la sección GCP de este Makefile):"
+	@echo "    make gcp-deploy       TODO: build remoto + migraciones + deploy"
+	@echo "    make gcp-build        Build local de la imagen (amd64)"
+	@echo "    make gcp-upload       Sube la imagen local a Artifact Registry"
+	@echo "    make gcp-publish      Build local + upload"
+	@echo "    make gcp-cloudbuild   Build + push remoto en Cloud Build"
+	@echo "    make gcp-migrate      Corre migraciones (Cloud Run Job)"
+	@echo "    make gcp-service      Solo despliega el servicio (imagen ya subida)"
+	@echo "    make gcp-cors         Apunta CORS_ORIGIN a la URL del web"
+	@echo "    make gcp-logs         Últimos logs en Cloud Run"
+	@echo "    make gcp-url          URL pública del servicio"
 	@echo ""
 	@echo "  Shells:"
 	@echo "    make shell            Accede al contenedor backend"

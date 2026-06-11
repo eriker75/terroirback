@@ -15,13 +15,19 @@ export class PrismaService
   constructor(private configService: ConfigService) {
     const nodeEnv = configService.get<string>('NODE_ENV');
     const databaseUrl = buildDatabaseUrl(configService);
+    // Cloud SQL por socket Unix (?host=/cloudsql/...) no habla TLS: el túnel de
+    // Cloud Run ya va cifrado. Forzar ssl ahí produce TlsConnectionError.
+    const usesUnixSocket = databaseUrl.includes('host=/');
 
     const pool = new Pool({
       connectionString: databaseUrl,
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
-      ssl: nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+      ssl:
+        nodeEnv === 'production' && !usesUnixSocket
+          ? { rejectUnauthorized: false }
+          : false,
     });
 
     const adapter = new PrismaPg(pool);
