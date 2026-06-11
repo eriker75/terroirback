@@ -159,7 +159,7 @@ gcp-publish: gcp-build gcp-upload
 # Es el mismo cloudbuild.yaml que ejecuta el trigger de GitHub en cada push.
 gcp-cloudbuild: gcp-check
 	gcloud builds submit --config cloudbuild.yaml \
-	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM) .
+	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM) .
 
 # Migraciones como Cloud Run Job: misma imagen, pero solo `npx prisma migrate deploy`.
 # Se corre ANTES de desplegar el servicio (que arranca con RUN_MIGRATIONS=false).

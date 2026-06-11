@@ -77,12 +77,13 @@ steps:
       - '--min-instances=0'
       - '--max-instances=3'
       - '--set-secrets=DATABASE_URL=terroir-database-url:latest,JWT_SECRET=terroir-jwt-secret:latest,R4_WEBHOOK_TOKEN=terroir-r4-webhook-token:latest,SMTP_PASS=terroir-smtp-pass:latest'
-      - '--set-env-vars=NODE_ENV=production,RUN_MIGRATIONS=false,TZ=America/Caracas,STORAGE_TYPE=gcs,GCS_BUCKET_NAME=terroir_files_bucket,GCP_PROJECT_ID=${PROJECT_ID},CORS_ORIGIN=${_CORS_ORIGIN},SMTP_HOST=${_SMTP_HOST},SMTP_PORT=587,SMTP_USER=${_SMTP_USER},SMTP_FROM=${_SMTP_FROM},GOOGLE_WEB_CLIENT_ID=${_GOOGLE_WEB_CLIENT_ID},GOOGLE_IOS_CLIENT_ID=,GOOGLE_ANDROID_CLIENT_ID=,APPLE_BUNDLE_ID=com.terroir.eribert,APPLE_SERVICE_ID='
+      - '--set-env-vars=NODE_ENV=production,RUN_MIGRATIONS=false,TZ=America/Caracas,STORAGE_TYPE=gcs,GCS_BUCKET_NAME=${_BUCKET},GCP_PROJECT_ID=${PROJECT_ID},CORS_ORIGIN=${_CORS_ORIGIN},SMTP_HOST=${_SMTP_HOST},SMTP_PORT=587,SMTP_USER=${_SMTP_USER},SMTP_FROM=${_SMTP_FROM},GOOGLE_WEB_CLIENT_ID=${_GOOGLE_WEB_CLIENT_ID},GOOGLE_IOS_CLIENT_ID=,GOOGLE_ANDROID_CLIENT_ID=,APPLE_BUNDLE_ID=com.terroir.eribert,APPLE_SERVICE_ID='
 
 substitutions:
   _REGION: us-east1
   _REPO: terroir-artifacts-repository
   _SQL_INSTANCE: terroir-db-instance
+  _BUCKET: terroir_files_bucket
   _CORS_ORIGIN: 'https://terroir-web-rkcvtfjtfa-ue.a.run.app'
   _GOOGLE_WEB_CLIENT_ID: ''
   _SMTP_HOST: ''
