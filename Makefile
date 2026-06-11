@@ -118,7 +118,7 @@ SMTP_USER ?=
 SMTP_FROM ?= noreply@tudominio.com
 
 # Login social (vacíos = deshabilitado)
-GOOGLE_WEB_CLIENT_ID     ?=
+GOOGLE_WEB_CLIENT_ID     ?= 430742211550-aubqke137np09p9im7c5sv5hacv32la6.apps.googleusercontent.com
 GOOGLE_IOS_CLIENT_ID     ?=
 GOOGLE_ANDROID_CLIENT_ID ?=
 APPLE_BUNDLE_ID          ?= com.terroir.eribert

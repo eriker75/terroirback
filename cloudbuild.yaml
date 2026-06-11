@@ -90,7 +90,7 @@ substitutions:
   _SQL_INSTANCE: terroir-db-instance
   _BUCKET: terroir_files_bucket
   _CORS_ORIGIN: 'https://terroir-web-rkcvtfjtfa-ue.a.run.app'
-  _GOOGLE_WEB_CLIENT_ID: ''
+  _GOOGLE_WEB_CLIENT_ID: '430742211550-aubqke137np09p9im7c5sv5hacv32la6.apps.googleusercontent.com'
   _SMTP_HOST: ''
   _SMTP_USER: ''
   _SMTP_FROM: 'noreply@tudominio.com'

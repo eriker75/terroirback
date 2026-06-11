@@ -21,6 +21,7 @@ import { ContactModule } from './contact/contact.module';
 import { PaymentsModule } from './payments/payments.module';
 import { BcvModule } from './bcv/bcv.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PaymentsModule,
     BcvModule,
     WebhooksModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
