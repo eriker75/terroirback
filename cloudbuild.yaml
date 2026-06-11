@@ -76,8 +76,11 @@ steps:
       - '--cpu=1'
       - '--min-instances=0'
       - '--max-instances=3'
-      # NOTA VPC/NAT (IP fija para R4, docs/cloud-nat-r4.md): con el NAT creado,
-      # agregar aquí: '--network=default', '--subnet=default', '--vpc-egress=all-traffic'
+      # VPC/NAT: egress por la VPC default → Cloud NAT → IP fija 34.73.166.231
+      # (whitelist del banco R4, docs/cloud-nat-r4.md). NO quitar estas flags.
+      - '--network=default'
+      - '--subnet=default'
+      - '--vpc-egress=all-traffic'
       - '--set-secrets=DATABASE_URL=terroir-database-url:latest,JWT_SECRET=terroir-jwt-secret:latest,R4_WEBHOOK_TOKEN=terroir-r4-webhook-token:latest,R4_COMMERCE_ID=terroir-r4-commerce-id:latest,SMTP_PASS=terroir-smtp-pass:latest'
       - '--set-env-vars=NODE_ENV=production,RUN_MIGRATIONS=false,TZ=America/Caracas,STORAGE_TYPE=gcs,GCS_BUCKET_NAME=${_BUCKET},GCP_PROJECT_ID=${PROJECT_ID},CORS_ORIGIN=${_CORS_ORIGIN},SMTP_HOST=${_SMTP_HOST},SMTP_PORT=587,SMTP_USER=${_SMTP_USER},SMTP_FROM=${_SMTP_FROM},GOOGLE_WEB_CLIENT_ID=${_GOOGLE_WEB_CLIENT_ID},GOOGLE_IOS_CLIENT_ID=,GOOGLE_ANDROID_CLIENT_ID=,APPLE_BUNDLE_ID=com.terroir.eribert,APPLE_SERVICE_ID=,R4_BASE_URL=https://r4conecta.mibanco.com.ve,R4_CUENTA_BANCO=${_R4_CUENTA_BANCO},R4_CUENTA_CEDULA=${_R4_CUENTA_CEDULA},R4_CUENTA_TELEFONO=${_R4_CUENTA_TELEFONO},R4_ALLOWED_IPS=${_R4_ALLOWED_IPS}'
 

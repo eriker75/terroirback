@@ -182,13 +182,13 @@ gcp-migrate: gcp-check
 	gcloud run jobs execute terroir-migrate --region $(REGION) --wait
 
 # Solo (re)despliega el servicio con la imagen ya subida a Artifact Registry.
-# NOTA VPC/NAT (IP fija de salida para R4, ver docs/cloud-nat-r4.md): cuando el
-# Cloud NAT esté creado y verificado, agrega estas flags al comando:
-#	  --network=default --subnet=default --vpc-egress=all-traffic \
+# VPC/NAT: el egress sale por la VPC default → Cloud NAT → IP fija 34.73.166.231
+# (whitelist del banco R4). Ver docs/cloud-nat-r4.md. NO quitar estas flags.
 gcp-service: gcp-check
 	gcloud run deploy $(BACKEND_SERVICE) --image $(BACKEND_IMAGE) --region $(REGION) \
 	  --service-account $(BACKEND_SA) \
 	  --add-cloudsql-instances $(PROJECT_ID):$(REGION):$(SQL_INSTANCE) \
+	  --network=default --subnet=default --vpc-egress=all-traffic \
 	  --allow-unauthenticated --memory 1Gi --cpu 1 --min-instances 0 --max-instances 3 \
 	  --set-secrets "$(BACKEND_SECRETS)" \
 	  --set-env-vars "$(BACKEND_ENV)"
