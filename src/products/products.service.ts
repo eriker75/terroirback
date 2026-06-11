@@ -34,6 +34,8 @@ const PRODUCT_SORT_COLUMNS: Record<
   name: (dir) => ({ name: dir }),
   category: (dir) => ({ category: { name: dir } }),
   price: (dir) => ({ price: dir }),
+  // Solo lo usa la tabla del admin (el catálogo público no expone `cost`).
+  cost: (dir) => ({ cost: dir }),
   stock: (dir) => ({ stock: dir }),
   points: (dir) => ({ pointsPrice: dir }),
   createdAt: (dir) => ({ createdAt: dir }),
@@ -43,26 +45,33 @@ const PRODUCT_SORT_COLUMNS: Record<
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) { }
 
-  private readonly productInclude = {
-    category: true,
-    attributes: true,
-    variants: true,
-    productTags: {
-      include: { tag: true },
-    },
-    relatedProducts: {
-      include: {
-        related: {
-          select: {
-            id: true,
-            name: true,
-            price: true,
-            mainImage: true,
+  // Los relacionados se filtran con la MISMA regla de visibilidad que el catálogo
+  // (visibilityWhere): si no, un producto WHOLESALE_ONLY aparecería como
+  // "relacionado" para un B2C/invitado y su detalle daría 404 al entrar.
+  private productInclude(viewer?: ProductViewer) {
+    const visibility = this.visibilityWhere(viewer);
+    return {
+      category: true,
+      attributes: true,
+      variants: true,
+      productTags: {
+        include: { tag: true },
+      },
+      relatedProducts: {
+        ...(visibility ? { where: { related: visibility } } : {}),
+        include: {
+          related: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              mainImage: true,
+            },
           },
         },
       },
-    },
-  } satisfies Prisma.ProductInclude;
+    } satisfies Prisma.ProductInclude;
+  }
 
   create(createProductDto: CreateProductDto) {
     const { tagIds, attributes, variants, categoryId, relatedProducts, ...productData } =
@@ -86,7 +95,7 @@ export class ProductsService {
           ? { create: relatedProducts.map(({ relatedId, relationType }) => ({ relatedId, relationType })) }
           : undefined,
       },
-      include: this.productInclude,
+      include: this.productInclude(),
     });
   }
 
@@ -117,7 +126,7 @@ export class ProductsService {
     const [data, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
-        include: this.productInclude,
+        include: this.productInclude(viewer),
         omit: this.costOmit(viewer),
         orderBy,
         take: limit,
@@ -260,7 +269,7 @@ export class ProductsService {
   async findOne(id: string, viewer?: ProductViewer) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: this.productInclude,
+      include: this.productInclude(viewer),
       omit: this.costOmit(viewer),
     });
 
@@ -322,7 +331,7 @@ export class ProductsService {
           }
           : undefined,
       },
-      include: this.productInclude,
+      include: this.productInclude(),
     });
   }
 
@@ -335,7 +344,7 @@ export class ProductsService {
         return await this.prisma.product.update({
           where: { id },
           data: { stock: { increment: quantity } },
-          include: this.productInclude,
+          include: this.productInclude(),
         });
       } catch {
         throw new NotFoundException(`Product with id ${id} not found`);

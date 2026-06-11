@@ -25,12 +25,25 @@ const ADDRESS_SORT_COLUMNS: Record<
 export class AddressService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(createAddressDto: CreateAddressDto) {
+  // Solo puede haber UNA dirección predeterminada por usuario: al crear o
+  // marcar una como default se desmarcan las demás (así el cliente resuelve
+  // "establecer como predeterminada" con una sola llamada).
+  async create(createAddressDto: CreateAddressDto) {
+    if (createAddressDto.isDefault) {
+      await this.clearDefault(createAddressDto.userId);
+    }
     return this.prisma.address.create({
       data: createAddressDto,
       include: {
         user: true,
       },
+    });
+  }
+
+  private clearDefault(userId: string, exceptId?: string) {
+    return this.prisma.address.updateMany({
+      where: { userId, isDefault: true, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      data: { isDefault: false },
     });
   }
 
@@ -86,7 +99,12 @@ export class AddressService {
   }
 
   async update(id: string, updateAddressDto: UpdateAddressDto) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
+
+    // Si se marca como predeterminada, las demás del usuario dejan de serlo.
+    if (updateAddressDto.isDefault) {
+      await this.clearDefault(existing.userId, id);
+    }
 
     return this.prisma.address.update({
       where: { id },

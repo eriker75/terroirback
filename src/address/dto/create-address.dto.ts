@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -58,6 +59,19 @@ export class CreateAddressDto {
   @IsString()
   @MaxLength(100)
   country?: string;
+
+  // Coordenadas del picker de mapa (web y app las usan para centrar el mapa
+  // al editar y para el envío). Opcionales: una dirección escrita a mano no
+  // tiene por qué traerlas.
+  @ApiPropertyOptional({ example: 10.488 })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: -66.8587 })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()

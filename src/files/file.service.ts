@@ -20,6 +20,11 @@ export interface StoredFileMeta {
 const IMAGE_FOLDER = 'images';
 const ALLOWED_MIME = /^image\/(jpe?g|png|webp|gif|avif|svg\+xml)$/;
 
+// Videos reproducibles directamente con <video> en navegadores modernos.
+// quicktime (.mov) se acepta porque Safari/iOS lo genera y lo reproduce.
+const VIDEO_FOLDER = 'videos';
+const ALLOWED_VIDEO_MIME = /^video\/(mp4|webm|ogg|quicktime|x-m4v)$/;
+
 /**
  * Orquesta el almacenamiento físico de archivos (no toca base de datos).
  * Elige el backend (local / s3 / gcs) según STORAGE_TYPE y devuelve la URL
@@ -64,6 +69,27 @@ export class FileService {
 
     const pathName = `${randomUUID()}${path.extname(file.originalname) || '.jpg'}`;
     const url = await this.storage.upload(file.buffer, IMAGE_FOLDER, pathName, file.mimetype);
+
+    return {
+      url,
+      pathName,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+    };
+  }
+
+  /** Guarda físicamente un video y devuelve sus metadatos. */
+  async storeVideo(file: Express.Multer.File): Promise<StoredFileMeta> {
+    if (!file) throw new BadRequestException('No se recibió ningún archivo');
+    if (!ALLOWED_VIDEO_MIME.test(file.mimetype)) {
+      throw new BadRequestException(
+        'Formato de video no permitido (usa mp4, webm, ogg o mov)',
+      );
+    }
+
+    const pathName = `${randomUUID()}${path.extname(file.originalname) || '.mp4'}`;
+    const url = await this.storage.upload(file.buffer, VIDEO_FOLDER, pathName, file.mimetype);
 
     return {
       url,

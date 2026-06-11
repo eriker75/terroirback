@@ -18,6 +18,16 @@ import { UsersService } from '../users/users.service';
 import { Prisma } from '@prisma/client';
 import { OrderStatus } from './order-status.enum';
 import { canAccessVisibility } from '../common/account.constants';
+import {
+  DEFAULT_TIMEZONE,
+  getStoreStatus,
+  HOURS_GROUP,
+  HOURS_POLICY_KEY,
+  HOURS_SCHEDULE_KEY,
+  HOURS_TIMEZONE_KEY,
+  nextOpeningLabel,
+  parseSchedule,
+} from '../common/store-hours';
 
 // Puntos que otorga una unidad de producto. Si el producto define `pointsEarned`
 // se usa ese valor; si no, se aplica la tasa por defecto (1 USD → 10 pts), que
@@ -122,6 +132,31 @@ export class OrdersService {
     });
   }
 
+  // Rechaza el checkout si la tienda está fuera de horario Y la política es
+  // 'block'. Sin horario configurado (o JSON inválido) no se aplica nada: la
+  // tienda se comporta como siempre abierta.
+  private async assertWithinServiceHours() {
+    const settings = await this.prisma.setting.findMany({
+      where: { metaGroup: HOURS_GROUP },
+      select: { metaKey: true, metaValue: true },
+    });
+    const byKey = new Map(settings.map((s) => [s.metaKey, s.metaValue]));
+    if (byKey.get(HOURS_POLICY_KEY) !== 'block') return;
+
+    const schedule = parseSchedule(byKey.get(HOURS_SCHEDULE_KEY));
+    if (!schedule) return;
+
+    const status = getStoreStatus(schedule, byKey.get(HOURS_TIMEZONE_KEY) || DEFAULT_TIMEZONE);
+    if (status.isOpen) return;
+
+    const label = nextOpeningLabel(status.nextOpening);
+    throw new BadRequestException(
+      label
+        ? `La tienda está fuera de horario. Podrás realizar tu pedido ${label}.`
+        : 'La tienda está fuera de horario en este momento.',
+    );
+  }
+
   // ── Checkout (invitado o autenticado) ─────────────────────────────────────
   // Guarda al comprador como `customer` (lo crea si no existe por email), crea
   // su Contact, su Address de envío y el Payment, y deja el pedido en PENDING.
@@ -152,6 +187,12 @@ export class OrdersService {
     if (isWholesaler && dto.paymentMethod === 'puntos') {
       throw new BadRequestException('El pago con puntos no está disponible para cuentas mayoristas');
     }
+
+    // Horario de servicio (settings grupo HOURS). Solo bloquea si la política
+    // configurada es 'block'; con 'notify' (default) el pedido se acepta y el
+    // front avisa que se procesará en la próxima apertura. La validación vive
+    // en el servidor porque el aviso del front es informativo y saltable.
+    await this.assertWithinServiceHours();
 
     // La tasa BCV se calcula SIEMPRE en el servidor (el `bcvRate` del cliente se
     // ignora). Sólo es relevante para pago_movil.
