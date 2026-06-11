@@ -38,6 +38,8 @@ const PRODUCT_SORT_COLUMNS: Record<
   cost: (dir) => ({ cost: dir }),
   stock: (dir) => ({ stock: dir }),
   points: (dir) => ({ pointsPrice: dir }),
+  // Ordena alfabéticamente: ALL < RETAIL_ONLY < WHOLESALE_ONLY.
+  visibility: (dir) => ({ visibility: dir }),
   createdAt: (dir) => ({ createdAt: dir }),
 };
 
