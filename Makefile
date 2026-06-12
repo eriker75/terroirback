@@ -119,8 +119,8 @@ SMTP_FROM ?= noreply@tudominio.com
 
 # Login social (vacíos = deshabilitado)
 GOOGLE_WEB_CLIENT_ID     ?= 430742211550-aubqke137np09p9im7c5sv5hacv32la6.apps.googleusercontent.com
-GOOGLE_IOS_CLIENT_ID     ?=
-GOOGLE_ANDROID_CLIENT_ID ?=
+GOOGLE_IOS_CLIENT_ID     ?= 430742211550-lj5kmjjrhc6tci15f341n4hh1ubpv1qk.apps.googleusercontent.com
+GOOGLE_ANDROID_CLIENT_ID ?= 430742211550-impju5kjn50tjumm3v6llsrt41b93sgj.apps.googleusercontent.com
 APPLE_BUNDLE_ID          ?= com.terroir.eribert
 APPLE_SERVICE_ID         ?=
 
@@ -168,7 +168,7 @@ gcp-publish: gcp-build gcp-upload
 # Es el mismo cloudbuild.yaml que ejecuta el trigger de GitHub en cada push.
 gcp-cloudbuild: gcp-check
 	gcloud builds submit --config cloudbuild.yaml \
-	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM),_R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),_R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),_R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),"_R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)" .
+	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),_GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM),_R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),_R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),_R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),"_R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)" .
 
 # Migraciones como Cloud Run Job: misma imagen, pero solo `npx prisma migrate deploy`.
 # Se corre ANTES de desplegar el servicio (que arranca con RUN_MIGRATIONS=false).
