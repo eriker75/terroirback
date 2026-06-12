@@ -89,7 +89,8 @@ substitutions:
   _REPO: terroir-artifacts-repository
   _SQL_INSTANCE: terroir-db-instance
   _BUCKET: terroir_files_bucket
-  _CORS_ORIGIN: 'https://terroir-web-rkcvtfjtfa-ue.a.run.app'
+# Ambas URLs del web (clásica + determinística), separadas por ';'
+  _CORS_ORIGIN: 'https://terroir-web-rkcvtfjtfa-ue.a.run.app;https://terroir-web-430742211550.us-east1.run.app'
   _GOOGLE_WEB_CLIENT_ID: '430742211550-aubqke137np09p9im7c5sv5hacv32la6.apps.googleusercontent.com'
   _GOOGLE_IOS_CLIENT_ID: '430742211550-lj5kmjjrhc6tci15f341n4hh1ubpv1qk.apps.googleusercontent.com'
   _GOOGLE_ANDROID_CLIENT_ID: '430742211550-impju5kjn50tjumm3v6llsrt41b93sgj.apps.googleusercontent.com'

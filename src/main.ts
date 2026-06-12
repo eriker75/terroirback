@@ -25,8 +25,14 @@ async function bootstrap() {
     }),
   );
 
+  // CORS_ORIGIN admite varios orígenes separados por ';' o ',' (en Cloud Run se
+  // usa ';' porque --set-env-vars reserva la coma). El web de Cloud Run tiene
+  // DOS URLs válidas (la clásica *-rkcvtfjtfa-ue.a.run.app y la determinística
+  // *-<nº-proyecto>.<región>.run.app): ambas deben estar permitidas.
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3001'],
+    origin: process.env.CORS_ORIGIN?.split(/[;,]/)
+      .map((o) => o.trim())
+      .filter(Boolean) ?? ['http://localhost:3001'],
     credentials: true,
   });
 

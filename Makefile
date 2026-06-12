@@ -107,9 +107,10 @@ BUCKET          ?= terroir_files_bucket
 BACKEND_SERVICE ?= terroir-backend
 WEB_SERVICE     ?= terroir-web
 TZ              ?= America/Caracas
-# URL del web desplegado. Va en CADA deploy porque --set-env-vars reemplaza
-# todas las env vars (si no, el redeploy borraría el CORS).
-CORS_ORIGIN     ?= https://terroir-web-rkcvtfjtfa-ue.a.run.app
+# URLs del web desplegado (separadas por ';' — la coma la reserva gcloud).
+# Cloud Run da DOS URLs válidas al mismo servicio: ambas van permitidas.
+# Va en CADA deploy porque --set-env-vars reemplaza todas las env vars.
+CORS_ORIGIN     ?= https://terroir-web-rkcvtfjtfa-ue.a.run.app;https://terroir-web-430742211550.us-east1.run.app
 
 # SMTP de producción (la clave va en el secreto terroir-smtp-pass, no aquí)
 SMTP_HOST ?=
@@ -168,7 +169,7 @@ gcp-publish: gcp-build gcp-upload
 # Es el mismo cloudbuild.yaml que ejecuta el trigger de GitHub en cada push.
 gcp-cloudbuild: gcp-check
 	gcloud builds submit --config cloudbuild.yaml \
-	  --substitutions=_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),_GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM),_R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),_R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),_R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),"_R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)" .
+	  --substitutions="_REGION=$(REGION),_REPO=$(REPO),_SQL_INSTANCE=$(SQL_INSTANCE),_BUCKET=$(BUCKET),_CORS_ORIGIN=$(CORS_ORIGIN),_GOOGLE_WEB_CLIENT_ID=$(GOOGLE_WEB_CLIENT_ID),_GOOGLE_IOS_CLIENT_ID=$(GOOGLE_IOS_CLIENT_ID),_GOOGLE_ANDROID_CLIENT_ID=$(GOOGLE_ANDROID_CLIENT_ID),_SMTP_HOST=$(SMTP_HOST),_SMTP_USER=$(SMTP_USER),_SMTP_FROM=$(SMTP_FROM),_R4_CUENTA_BANCO=$(R4_CUENTA_BANCO),_R4_CUENTA_CEDULA=$(R4_CUENTA_CEDULA),_R4_CUENTA_TELEFONO=$(R4_CUENTA_TELEFONO),_R4_ALLOWED_IPS=$(R4_ALLOWED_IPS)" .
 
 # Migraciones como Cloud Run Job: misma imagen, pero solo `npx prisma migrate deploy`.
 # Se corre ANTES de desplegar el servicio (que arranca con RUN_MIGRATIONS=false).
