@@ -122,7 +122,7 @@ GOOGLE_WEB_CLIENT_ID     ?= 430742211550-aubqke137np09p9im7c5sv5hacv32la6.apps.g
 GOOGLE_IOS_CLIENT_ID     ?= 430742211550-lj5kmjjrhc6tci15f341n4hh1ubpv1qk.apps.googleusercontent.com
 GOOGLE_ANDROID_CLIENT_ID ?= 430742211550-impju5kjn50tjumm3v6llsrt41b93sgj.apps.googleusercontent.com
 APPLE_BUNDLE_ID          ?= com.terroir.eribert
-APPLE_SERVICE_ID         ?=
+APPLE_SERVICE_ID         ?= com.terroir.web.signin
 
 # R4 Conecta (el token R4_COMMERCE_ID va en el secreto terroir-r4-commerce-id).
 # La cuenta receptora es FALLBACK: la prioridad la tienen los settings del admin.
